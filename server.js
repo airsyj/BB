@@ -11,7 +11,8 @@ const exporter = require('./lib/export');
 
 const ROOT = __dirname;
 const PUBLIC = path.join(ROOT, 'public');
-const UPLOADS = path.join(ROOT, config.uploadsDir);
+// uploadsDir 支持绝对路径（云托管挂载 CFS 时传 /data/uploads），绝对路径直接使用，避免被拼到 ROOT 下
+const UPLOADS = path.isAbsolute(config.uploadsDir) ? config.uploadsDir : path.join(ROOT, config.uploadsDir);
 fs.mkdirSync(UPLOADS, { recursive: true });
 
 const MIME = {
@@ -64,17 +65,19 @@ function persistPhotos(fields) {
   return out;
 }
 
+// 统一使用北京时间（UTC+8），避免云托管容器默认 UTC 时区导致日期错位（影响按日期导出/我的报备）
+function cst(ts) { return new Date(ts + 8 * 3600 * 1000); }
 function fmtDate(ts) {
-  const d = new Date(ts);
+  const d = cst(ts);
   const p = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}`;
 }
 
-// 报备编号：按生成时的 年月日时分秒 生成（如 20260805210654）
+// 报备编号：按生成时的北京时间 年月日时分秒 生成（如 20260805210654）
 function fmtId(ts) {
-  const d = new Date(ts);
+  const d = cst(ts);
   const p = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+  return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}`;
 }
 
 function adminOk(url) {
