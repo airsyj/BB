@@ -304,3 +304,26 @@ input.id-good {
 .modal-body .cr b { color: var(--text); text-align: right; word-break: break-all; }
 .modal-foot { display: flex; gap: 10px; padding: 12px 16px; border-top: 1px solid var(--border); }
 .modal-foot .btn { flex: 1; }
+
+/* 通知横幅：首页醒目位置展示管理员发布的内容 */
+.notice-banner {
+  background: linear-gradient(90deg, #fff7ed, #fef3c7);
+  border-bottom: 2px solid var(--warn);
+  padding: 10px 14px;
+  color: #7b341e;
+  font-size: 14px;
+  font-weight: 600;
+}
+.notice-item { padding: 2px 0; line-height: 1.45; }
+
+/* 手机号实名提示 */
+.phone-tip {
+  font-size: 12px;
+  color: var(--warn);
+  margin: -6px 0 6px;
+  padding-left: 2px;
+}
+
+/* 我的报备卡片 */
+.mine-card { border-left: 4px solid var(--primary); }
+.mine-card h3 { color: var(--primary-d); }

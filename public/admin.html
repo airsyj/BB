@@ -40,6 +40,15 @@
     </div>
     <div id="stat" class="hint"></div>
   </div>
+  <div class="card">
+    <h3>发布通知 <span class="tag">将展示在报备首页顶部</span></h3>
+    <textarea id="noticeText" rows="3" placeholder="输入要发布的通告内容…" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:14px;resize:vertical"></textarea>
+    <div class="dl-btns" style="margin-top:10px">
+      <button type="button" onclick="publishNotice()">发布通知</button>
+    </div>
+    <div id="noticeStat" class="hint"></div>
+    <div id="noticeList" style="margin-top:8px"></div>
+  </div>
   <div class="card date-bar">
     <label for="date">报备日期：</label>
     <input type="date" id="date" />

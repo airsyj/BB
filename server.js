@@ -82,6 +82,23 @@ function adminOk(url) {
   return t && t === config.adminToken;
 }
 
+// ---- 服务端合法性校验（与前端一致，作为兜底） ----
+// 身份证号（GB 11643）：18 位，出生日期合法，校验位正确
+function checkIdNumber(v) {
+  const s = String(v || '').replace(/\s/g, '').toUpperCase();
+  if (!/^\d{17}[\dX]$/.test(s)) return false;
+  const y = Number(s.slice(6, 10)), m = Number(s.slice(10, 12)), d = Number(s.slice(12, 14));
+  if (y < 1900 || y > new Date().getFullYear()) return false;
+  if (m < 1 || m > 12) return false;
+  if (d < 1 || d > 31) return false;
+  const w = [7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2];
+  const codes = '10X98765432';
+  let sum = 0;
+  for (let i = 0; i < 17; i++) sum += Number(s[i]) * w[i];
+  return codes[sum % 11] === s[17];
+}
+function phoneOk(v) { return /^1[3-9]\d{9}$/.test(String(v || '')); }
+
 function serveStatic(req, res, url) {
   let p = url.pathname;
   if (p === '/') p = '/index.html';
@@ -114,6 +131,16 @@ const server = http.createServer(async (req, res) => {
       if (!['personnel', 'vehicle', 'material_in', 'material_out'].includes(type)) {
         return sendJson(res, 400, { ok: false, error: '未知报备类型' });
       }
+      // 服务端合法性校验（兜底，前端已拦一遍）
+      const fb = body.fields || {};
+      const errs = [];
+      for (const k of ['idNumber', 'driverIdNumber']) {
+        if (fb[k] && String(fb[k]).length === 18 && !checkIdNumber(fb[k])) errs.push('身份证号格式/校验位不正确');
+      }
+      for (const k of ['phone', 'driverPhone']) {
+        if (fb[k] && !phoneOk(fb[k])) errs.push('手机号格式不正确');
+      }
+      if (errs.length) return sendJson(res, 400, { ok: false, error: errs.join('；') });
       const createdAt = Date.now();
       const fields = persistPhotos(body.fields || {});
       // 不自动生成“报备到期日”：具体到期日以向甲方报备为准，当前未知
@@ -234,17 +261,91 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, list });
     }
 
-    // ---- 后台：导出 Excel ----
+    // ---- 后台：导出 Excel（可按日期筛选） ----
     if (req.method === 'GET' && pathname === '/api/export') {
       if (!adminOk(url)) return sendJson(res, 401, { ok: false, error: 'token 错误' });
       const type = url.searchParams.get('type') || 'all';
-      const buf = await exporter.exportType(type);
-      const fname = `报备明细_${type}_${fmtDate(Date.now())}.xlsx`;
+      const date = url.searchParams.get('date') || '';
+      const buf = await exporter.exportType(type, date);
+      const fname = `报备明细_${type}${date ? '_' + date : ''}_${fmtDate(Date.now())}.xlsx`;
       res.writeHead(200, {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'Content-Disposition': `attachment; filename="${encodeURIComponent(fname)}"`,
       });
       return res.end(buf);
+    }
+
+    // ---- 通知：公开读取（首页横幅） ----
+    if (req.method === 'GET' && pathname === '/api/notices') {
+      return sendJson(res, 200, { ok: true, list: store.listNotices() });
+    }
+
+    // ---- 通知：超级管理员发布 ----
+    if (req.method === 'POST' && pathname === '/api/notices') {
+      if (!adminOk(url)) return sendJson(res, 401, { ok: false, error: 'token 错误' });
+      const body = JSON.parse(await readBody(req));
+      const text = (body.text || '').trim();
+      if (!text) return sendJson(res, 400, { ok: false, error: '通知内容不能为空' });
+      const n = store.addNotice(text, 'admin');
+      return sendJson(res, 200, { ok: true, notice: n });
+    }
+
+    // ---- 通知：超级管理员删除 ----
+    if (req.method === 'DELETE' && pathname === '/api/notices') {
+      if (!adminOk(url)) return sendJson(res, 401, { ok: false, error: 'token 错误' });
+      const id = url.searchParams.get('id') || '';
+      store.deleteNotice(id);
+      return sendJson(res, 200, { ok: true });
+    }
+
+    // ---- 重名/重号冲突检测（校验信息合法性、防止冒用他人证件） ----
+    if (req.method === 'GET' && pathname === '/api/check-conflict') {
+      const idNumber = url.searchParams.get('idNumber') || '';
+      const phone = url.searchParams.get('phone') || '';
+      const name = url.searchParams.get('name') || '';
+      const c = store.conflicts({ idNumber, phone, name });
+      return sendJson(res, 200, { ok: true, conflicts: c });
+    }
+
+    // ---- 我的报备：凭身份证号+手机号查看本人记录 ----
+    if (req.method === 'GET' && pathname === '/api/my') {
+      const idNumber = url.searchParams.get('idNumber') || '';
+      const phone = url.searchParams.get('phone') || '';
+      if (!idNumber || !phone) return sendJson(res, 400, { ok: false, error: '请填写身份证号与手机号' });
+      const list = store.mine({ idNumber, phone }).map((r) => ({
+        id: r.id,
+        type: r.type,
+        isRenewal: r.isRenewal,
+        createdAtStr: r.createdAtStr,
+        passExpiry: r.passExpiry || '',
+        fields: r.fields,
+      }));
+      return sendJson(res, 200, { ok: true, list });
+    }
+
+    // ---- 修改本人报备：仅允许修改归属自己的记录 ----
+    if (req.method === 'PUT' && pathname.startsWith('/api/report/')) {
+      const id = pathname.split('/').pop();
+      const body = JSON.parse(await readBody(req));
+      const idNumber = body.idNumber || '';
+      const phone = body.phone || '';
+      const rec = store.findById(id);
+      if (!rec) return sendJson(res, 404, { ok: false, error: '记录不存在' });
+      const o = store.ownerOf(rec);
+      const idMatch = idNumber && o.ids.includes(idNumber);
+      const phMatch = phone && o.phones.includes(phone);
+      if (!idMatch || !phMatch) return sendJson(res, 403, { ok: false, error: '只能修改本人报备的内容' });
+      const fields = persistPhotos(body.fields || {});
+      const ue = [];
+      for (const k of ['idNumber', 'driverIdNumber']) {
+        if (fields[k] && String(fields[k]).length === 18 && !checkIdNumber(fields[k])) ue.push('身份证号校验未通过');
+      }
+      for (const k of ['phone', 'driverPhone']) {
+        if (fields[k] && !phoneOk(fields[k])) ue.push('手机号格式不正确');
+      }
+      if (ue.length) return sendJson(res, 400, { ok: false, error: ue.join('；') });
+      store.update(id, fields);
+      return sendJson(res, 200, { ok: true, id });
     }
 
     // ---- 静态资源 ----

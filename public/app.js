@@ -441,6 +441,28 @@ function checkIdNumber(v) {
   return codes[sum % 11] === s[17];
 }
 
+// 身份证号合法性（含位数/出生日期/校验位），返回 {ok, reason}
+function validateId(v) {
+  const s = String(v || '').replace(/\s/g, '').toUpperCase();
+  if (!s) return { ok: false, reason: '未填写' };
+  if (!/^\d{17}[\dX]$/.test(s)) return { ok: false, reason: '须为18位，末位可为X' };
+  const y = +s.slice(6, 10), m = +s.slice(10, 12), d = +s.slice(12, 14);
+  if (y < 1900 || y > new Date().getFullYear()) return { ok: false, reason: '出生年份不合理' };
+  if (m < 1 || m > 12) return { ok: false, reason: '月份不合理' };
+  if (d < 1 || d > 31) return { ok: false, reason: '日期不合理' };
+  if (!checkIdNumber(s)) return { ok: false, reason: '校验位不正确' };
+  return { ok: true, reason: '' };
+}
+
+// 手机号合法性（11位、1[3-9] 开头），返回 {ok, reason}
+function validatePhone(v) {
+  const s = String(v || '');
+  if (!s) return { ok: false, reason: '未填写' };
+  if (!/^\d{11}$/.test(s)) return { ok: false, reason: '须为11位数字' };
+  if (!/^1[3-9]\d{9}$/.test(s)) return { ok: false, reason: '号段不正确（应为1[3-9]开头）' };
+  return { ok: true, reason: '' };
+}
+
 function fillFields(slot, data) {
   const fill = JSON.parse(slot.dataset.fill || '{}');
   for (const [k, id] of Object.entries(fill)) {
@@ -559,28 +581,30 @@ function plateOk(v) {
 function collectProblems(type) {
   const t = (type === 'material_in' || type === 'material_out') ? 'material' : type;
   const P = [];
-  const need = (id, label, check) => {
+  const need = (id, label) => { if (!val(id)) P.push('缺：' + label); };
+  const needV = (id, label, validator) => {
     const v = val(id);
     if (!v) P.push('缺：' + label);
-    else if (check && !check(v)) P.push('错：' + label);
+    else { const r = validator(v); if (!r.ok) P.push('错：' + label + '（' + r.reason + '）'); }
   };
+  const plateV = (v) => ({ ok: plateOk(v), reason: plateOk(v) ? '' : '车牌格式不正确' });
   if (t === 'personnel') {
     need('p_name', '人员姓名');
-    need('p_idNumber', '身份证号', checkIdNumber);
-    need('p_phone', '手机号', phoneOk);
+    needV('p_idNumber', '身份证号', validateId);
+    needV('p_phone', '手机号', validatePhone);
     need('p_isNew', '是否新办');
     need('p_carryLaptop', '是否携带笔记本');
     if (val('p_carryLaptop') === '是') need('p_laptopModel', '笔记本型号');
   } else if (t === 'vehicle') {
     need('v_licenseName', '驾驶证姓名');
     need('v_driverIdName', '身份证姓名');
-    need('v_driverIdNumber', '驾驶员身份证号', checkIdNumber);
-    need('v_plate', '车牌号', plateOk);
+    needV('v_driverIdNumber', '驾驶员身份证号', validateId);
+    needV('v_plate', '车牌号', plateV);
     need('v_vehicleType', '车辆类型');
     need('v_vehicleBrand', '车品牌');
     need('v_vehicleModel', '车型号');
     need('v_annualInspection', '行驶证年检是否过期');
-    need('v_phone', '手机号', phoneOk);
+    needV('v_phone', '手机号', validatePhone);
     need('v_isNew', '是否新办');
   } else if (t === 'material') {
     need('m_name', '物品名称');
@@ -588,10 +612,10 @@ function collectProblems(type) {
     need('m_qty', '物品数量');
     const isOut = val('m_type') === 'material_out';
     need(isOut ? 'm_out_time' : 'm_in_time', isOut ? '出场日期' : '进厂日期');
-    need('m_driverPhone', '驾驶员电话', phoneOk);
+    needV('m_driverPhone', '驾驶员电话', validatePhone);
     need('m_driverName', '驾驶员姓名');
-    need('m_driverIdNumber', '驾驶员身份证号', checkIdNumber);
-    if (isOut) need('m_phone', '报备手机号', phoneOk);
+    needV('m_driverIdNumber', '驾驶员身份证号', validateId);
+    if (isOut) needV('m_phone', '报备手机号', validatePhone);
   }
   return P;
 }
@@ -601,11 +625,38 @@ function escapeHtml(s) {
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// 重名/重号冲突检测：返回错误串（无冲突返回 null）
+async function conflictError(type) {
+  let idNumber = '', phone = '', name = '';
+  if (type === 'personnel') { idNumber = val('p_idNumber'); phone = val('p_phone'); name = val('p_name'); }
+  else if (type === 'vehicle') { idNumber = val('v_driverIdNumber'); phone = val('v_phone'); name = val('v_driverIdName'); }
+  else if (type === 'material_in' || type === 'material_out') {
+    idNumber = val('m_driverIdNumber'); phone = val('m_driverPhone'); name = val('m_driverName');
+    if (type === 'material_out' && val('m_phone')) phone = val('m_phone');
+  }
+  if (!idNumber && !phone) return null;
+  if (!name) return null;   // 未填姓名无法判断是否同一人，跳过
+  try {
+    const q = `idNumber=${encodeURIComponent(idNumber)}&phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}`;
+    const r = await fetch('/api/check-conflict?' + q);
+    const j = await r.json();
+    if (j.ok && (j.conflicts.id.length || j.conflicts.phone.length)) {
+      const parts = [];
+      if (j.conflicts.id.length) parts.push('身份证号已被【' + j.conflicts.id.join('、') + '】使用');
+      if (j.conflicts.phone.length) parts.push('手机号已被【' + j.conflicts.phone.join('、') + '】使用');
+      return '疑似冒用他人证件：' + parts.join('；') + '。请核对本人实名信息。';
+    }
+  } catch (e) { /* 忽略，放行由服务端兜底 */ }
+  return null;
+}
+
 // 提交前确认弹层
 let _confirm = null;
-function requestSubmit(type, fields, hintId, extra) {
+async function requestSubmit(type, fields, hintId, extra) {
   const P = collectProblems(type);
   if (P.length) return hint(hintId, '⚠ 无法提交，请先修正：\n' + P.join('；'), 'err');
+  const c = await conflictError(type);
+  if (c) return hint(hintId, '⚠ 无法提交：' + c, 'err');
   const t = (type === 'material_in' || type === 'material_out') ? 'material' : type;
   const rows = [];
   const add = (k, v) => { if (v) rows.push(`<div class="cr"><span>${k}</span><b>${escapeHtml(v)}</b></div>`); };
@@ -748,6 +799,31 @@ function submitRenew() {
   postReport(renewCtx.type, fields, 'r_hint', { isRenewal: true, passExpiry: validUntil });
 }
 
+// 实时冲突检测配置（重名/重号）
+const CONFLICT_CFG = {
+  personnel: { ids: ['p_idNumber'], phones: ['p_phone'], name: 'p_name', hint: 'p_hint' },
+  vehicle: { ids: ['v_driverIdNumber'], phones: ['v_phone'], name: 'v_driverIdName', hint: 'v_hint' },
+  material: { ids: ['m_driverIdNumber'], phones: ['m_driverPhone', 'm_phone'], name: 'm_driverName', hint: 'm_hint' },
+};
+async function liveConflict(type) {
+  const cfg = CONFLICT_CFG[type];
+  const idNumber = cfg.ids.map(val).find(Boolean) || '';
+  const phone = cfg.phones.map(val).find(Boolean) || '';
+  const name = val(cfg.name);
+  if ((!idNumber && !phone) || !name) return;     // 信息不全时不误报
+  try {
+    const q = `idNumber=${encodeURIComponent(idNumber)}&phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}`;
+    const r = await fetch('/api/check-conflict?' + q);
+    const j = await r.json();
+    const h = document.getElementById(cfg.hint);
+    if (j.ok && (j.conflicts.id.length || j.conflicts.phone.length)) {
+      const who = j.conflicts.id[0] || j.conflicts.phone[0] || '他人';
+      toast('⚠ 该' + (j.conflicts.id.length ? '身份证号' : '手机号') + '已被他人使用，请确认是本人实名');
+      if (h) { h.textContent = '⚠ ' + (j.conflicts.id.length ? '身份证号' : '手机号') + '已被【' + who + '】使用，疑似非本人实名'; h.className = 'hint err'; }
+    }
+  } catch (e) { /* 忽略 */ }
+}
+
 // 手机号/身份证号/车牌号 失焦或输满即自动带出历史信息，并自动判定新办/续期
 function bindAutoFill() {
   const bind = (ids, paramsFn, map, opt) => {
@@ -794,6 +870,16 @@ function bindAutoFill() {
     driverName: 'm_driverName', driverIdNumber: 'm_driverIdNumber',
     plate: 'm_plate', vehicleBrand: 'm_brand', vehicleModel: 'm_model',
   }, { prefer: 'vehicle', overwrite: false, hintId: 'm_fill_hint' });
+
+  // 失焦时做重名/重号实时检测
+  const confBind = (type) => {
+    const cfg = CONFLICT_CFG[type];
+    [...cfg.ids, ...cfg.phones].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('blur', () => liveConflict(type));
+    });
+  };
+  confBind('personnel'); confBind('vehicle'); confBind('material');
 }
 
 // 身份证输入框实时校验提示
@@ -821,6 +907,7 @@ initCropper();
 bindAutoFill();
 bindIdCheck();
 initMaterialDate();
+loadNotices();   // 加载首页通知横幅
 
 // ============ 提交前确认弹层交互 ============
 document.getElementById('confirmCancel').addEventListener('click', () => {
@@ -834,3 +921,85 @@ document.getElementById('confirmOk').addEventListener('click', () => {
   _confirm = null;
   postReport(c.type, c.fields, c.hintId, c.extra);
 });
+
+// ============ 首页通知横幅（超级管理员发布） ============
+async function loadNotices() {
+  try {
+    const r = await fetch('/api/notices');
+    const j = await r.json();
+    const el = document.getElementById('noticeBanner');
+    if (j.ok && j.list && j.list.length) {
+      el.style.display = 'block';
+      el.innerHTML = j.list.map((n) => `<div class="notice-item">📢 ${escapeHtml(n.text)}</div>`).join('');
+    } else {
+      el.style.display = 'none';
+    }
+  } catch (e) { /* 忽略 */ }
+}
+
+// ============ 我的报备（凭身份证号+手机号，仅可查看/修改本人） ============
+const MINE_TYPE_LABEL = { personnel: '人员报备', vehicle: '车辆/司机报备', material_in: '物资进场', material_out: '物资出场' };
+const MINE_FIELDS = {
+  personnel: [['name', '姓名'], ['idNumber', '身份证号'], ['phone', '手机号'], ['carryLaptop', '携带笔记本'], ['laptopModel', '笔记本型号']],
+  vehicle: [['licenseName', '驾驶证姓名'], ['driverIdName', '身份证姓名'], ['driverIdNumber', '身份证号'], ['plate', '车牌号'], ['vehicleBrand', '车品牌'], ['vehicleModel', '车型号'], ['phone', '手机号'], ['annualInspection', '年检是否过期']],
+  material_in: [['itemName', '物品名称'], ['unit', '单位'], ['qty', '数量'], ['driverName', '驾驶员姓名'], ['driverIdNumber', '驾驶员身份证号'], ['driverPhone', '驾驶员电话'], ['entryTime', '进厂日期']],
+  material_out: [['itemName', '物品名称'], ['unit', '单位'], ['qty', '数量'], ['driverName', '驾驶员姓名'], ['driverIdNumber', '驾驶员身份证号'], ['driverPhone', '驾驶员电话'], ['phone', '报备手机号'], ['exitTime', '出场日期']],
+};
+
+async function loadMine() {
+  const idNumber = val('mine_id'), phone = val('mine_phone');
+  if (!idNumber || !phone) return hint('mine_hint', '请填写身份证号与手机号', 'err');
+  if (!validateId(idNumber).ok) return hint('mine_hint', '身份证号格式不正确', 'err');
+  if (!validatePhone(phone).ok) return hint('mine_hint', '手机号格式不正确', 'err');
+  try {
+    const q = `idNumber=${encodeURIComponent(idNumber)}&phone=${encodeURIComponent(phone)}`;
+    const r = await fetch('/api/my?' + q);
+    const j = await r.json();
+    if (!j.ok) return hint('mine_hint', j.error || '查询失败', 'err');
+    renderMine(j.list);
+    hint('mine_hint', j.list.length ? `共 ${j.list.length} 条本人报备，仅可修改本人内容` : '未找到您的报备记录', j.list.length ? '' : 'err');
+  } catch (e) {
+    hint('mine_hint', '网络错误，请重试', 'err');
+  }
+}
+
+function renderMine(list) {
+  const box = document.getElementById('mine_list');
+  box.innerHTML = '';
+  if (!list.length) { box.innerHTML = '<div class="card">暂无报备记录</div>'; return; }
+  list.forEach((rec) => {
+    const fields = MINE_FIELDS[rec.type] || [];
+    const card = document.createElement('div');
+    card.className = 'card mine-card';
+    let html = `<h3>${MINE_TYPE_LABEL[rec.type] || rec.type} · 编号 ${rec.id} · ${rec.createdAtStr} ${rec.isRenewal ? '（续期）' : ''}</h3>`;
+    fields.forEach(([k, lab]) => {
+      const v = rec.fields[k] || '';
+      const isDate = /Time$/.test(k);
+      html += `<label class="field"><span class="lbl">${lab}</span><input id="mine_${rec.id}_${k}" value="${escapeHtml(v)}" ${isDate ? 'type="date"' : ''} /></label>`;
+    });
+    html += `<div id="mine_${rec.id}_hint" class="hint"></div>`;
+    html += `<button class="btn" type="button" onclick="saveMine('${rec.id}','${rec.type}')">保存修改</button>`;
+    card.innerHTML = html;
+    box.appendChild(card);
+  });
+}
+
+async function saveMine(id, type) {
+  const fields = MINE_FIELDS[type] || [];
+  const obj = {};
+  fields.forEach(([k]) => { const el = document.getElementById(`mine_${id}_${k}`); if (el) obj[k] = el.value.trim(); });
+  const idNumber = val('mine_id'), phone = val('mine_phone');
+  const h = document.getElementById(`mine_${id}_hint`);
+  try {
+    const r = await fetch('/api/report/' + id, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idNumber, phone, fields: obj }),
+    });
+    const j = await r.json();
+    if (j.ok) { h.textContent = '已保存 ✓'; h.className = 'hint ok'; }
+    else { h.textContent = '保存失败：' + (j.error || ''); h.className = 'hint err'; }
+  } catch (e) {
+    h.textContent = '网络错误，请重试'; h.className = 'hint err';
+  }
+}

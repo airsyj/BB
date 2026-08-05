@@ -47,14 +47,75 @@ document.querySelectorAll('.dl-btns a').forEach((a) => {
     const token = getToken();
     if (!token) return alert('请先填写 token 并连接');
     const type = a.dataset.type;
-    window.location.href = `/api/export?type=${type}&token=${encodeURIComponent(token)}`;
+    const date = document.getElementById('date').value;
+    const q = `/api/export?type=${type}&token=${encodeURIComponent(token)}` + (date ? `&date=${encodeURIComponent(date)}` : '');
+    window.location.href = q;
   });
 });
+
+// ---- 通知管理（超级管理员） ----
+async function publishNotice() {
+  const token = getToken();
+  if (!token) return alert('请先填写 token 并连接');
+  const text = document.getElementById('noticeText').value.trim();
+  if (!text) return alert('通知内容不能为空');
+  try {
+    const r = await fetch('/api/notices?token=' + encodeURIComponent(token), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    const j = await r.json();
+    if (j.ok) {
+      document.getElementById('noticeText').value = '';
+      document.getElementById('noticeStat').textContent = '已发布 ✓';
+      document.getElementById('noticeStat').className = 'hint ok';
+      loadNoticesAdmin();
+    } else {
+      document.getElementById('noticeStat').textContent = '发布失败：' + (j.error || '');
+      document.getElementById('noticeStat').className = 'hint err';
+    }
+  } catch (e) {
+    alert('发布失败，请重试');
+  }
+}
+
+async function loadNoticesAdmin() {
+  const token = getToken();
+  if (!token) return;
+  try {
+    const r = await fetch('/api/notices?token=' + encodeURIComponent(token));
+    const j = await r.json();
+    if (!j.ok) return;
+    const box = document.getElementById('noticeList');
+    if (!j.list.length) { box.innerHTML = '<div class="hint">暂无已发布通知</div>'; return; }
+    box.innerHTML = j.list.map((n) =>
+      `<div style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+         <div style="flex:1">${escapeHtml(n.text)}</div>
+         <button class="btn secondary" style="width:auto;padding:6px 12px" onclick="deleteNoticeAdmin('${n.id}')">撤回</button>
+       </div>`).join('');
+  } catch (e) { /* 忽略 */ }
+}
+
+async function deleteNoticeAdmin(id) {
+  const token = getToken();
+  if (!token) return;
+  if (!confirm('确定撤回该通知？')) return;
+  try {
+    await fetch('/api/notices?id=' + encodeURIComponent(id) + '&token=' + encodeURIComponent(token), { method: 'DELETE' });
+    loadNoticesAdmin();
+  } catch (e) { alert('撤回失败'); }
+}
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 
 // 初始尝试用已保存的 token 连接，默认当天日期
 window.addEventListener('DOMContentLoaded', () => {
   setToday();
   const saved = localStorage.getItem('adminToken');
-  if (saved) { document.getElementById('token').value = saved; loadList(); }
+  if (saved) { document.getElementById('token').value = saved; loadList(); loadNoticesAdmin(); }
   document.getElementById('date').addEventListener('change', loadList);
 });

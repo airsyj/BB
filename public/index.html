@@ -9,11 +9,15 @@
 <body>
 <header class="app">市政工程进场出场报备</header>
 
+<!-- 通知横幅：超级管理员发布，首页醒目展示 -->
+<div class="notice-banner" id="noticeBanner" style="display:none"></div>
+
 <nav class="tabs" id="tabs">
   <button data-tab="personnel" class="active">人员报备</button>
   <button data-tab="vehicle">车辆报备</button>
   <button data-tab="material">物资报备</button>
   <button data-tab="renew">续期报备</button>
+  <button data-tab="mine">我的报备</button>
 </nav>
 
 <main>
@@ -41,6 +45,7 @@
         <label class="field"><span class="lbl">有效期止</span><input id="p_idValidEnd" placeholder="自动识别" /></label>
       </div>
       <label class="field"><span class="lbl">手机号<span class="req">*</span></span><input id="p_phone" type="tel" inputmode="numeric" placeholder="11位手机号" /></label>
+      <div class="phone-tip">⚠ 须为本人实名手机号，且与身份证号一致；如与他人重号将被拦截。</div>
       <label class="field"><span class="lbl">是否新办<span class="req">*</span></span>
         <select id="p_isNew"><option value="是">是（新办）</option><option value="否">否（续期）</option></select></label>
       <label class="field"><span class="lbl">是否携带笔记本电脑<span class="req">*</span></span>
@@ -96,6 +101,7 @@
       <label class="field"><span class="lbl">行驶证年检是否过期<span class="req">*</span></span>
         <select id="v_annualInspection"><option value="否">否</option><option value="是">是</option></select></label>
       <label class="field"><span class="lbl">手机号<span class="req">*</span></span><input id="v_phone" type="tel" inputmode="numeric" placeholder="11位手机号" /></label>
+      <div class="phone-tip">⚠ 须为本人实名手机号，如与他人重号将被拦截。</div>
       <label class="field"><span class="lbl">是否新办<span class="req">*</span></span>
         <select id="v_isNew"><option value="是">是（新办）</option><option value="否">否（续期）</option></select></label>
       <div id="v_hint" class="hint"></div>
@@ -138,6 +144,7 @@
       <h3>关联报备车辆及驾驶员 <span class="tag">先填手机号，自动带出历史信息</span></h3>
       <label class="field"><span class="lbl">驾驶员电话<span class="req">*</span></span>
         <input id="m_driverPhone" type="tel" inputmode="numeric" placeholder="填完手机号自动填充下方信息" /></label>
+      <div class="phone-tip">⚠ 须为驾驶员本人实名手机号，如与他人重号将被拦截。</div>
       <div id="m_fill_hint" class="hint"></div>
       <div class="row2">
         <label class="field"><span class="lbl">驾驶员姓名<span class="req">*</span></span><input id="m_driverName" /></label>
@@ -158,6 +165,7 @@
       <div id="m_out_box" style="display:none">
         <label class="field"><span class="lbl">出场日期<span class="req">*</span></span><input id="m_out_time" type="date" /></label>
         <label class="field"><span class="lbl">报备手机号<span class="req">*</span></span><input id="m_phone" type="tel" inputmode="numeric" /></label>
+        <div class="phone-tip">⚠ 须为本人实名手机号。</div>
       </div>
       <div id="m_hint" class="hint"></div>
       <button class="btn" onclick="submitMaterial()">提交报备</button>
@@ -191,7 +199,20 @@
     </div>
   </section>
 
-  <div class="admin-link"><a href="/admin">后台管理（下载报表）</a></div>
+  <!-- 我的报备 -->
+  <section class="section" id="sec-mine">
+    <div class="card">
+      <h3>查询我的报备 <span class="tag">凭身份证号 + 手机号，仅可查看/修改本人内容</span></h3>
+      <label class="field"><span class="lbl">身份证号<span class="req">*</span></span><input id="mine_id" placeholder="输入本人身份证号" /></label>
+      <label class="field"><span class="lbl">手机号<span class="req">*</span></span><input id="mine_phone" type="tel" inputmode="numeric" placeholder="输入本人手机号" /></label>
+      <div class="phone-tip">⚠ 须为本人实名手机号，与身份证号一致。</div>
+      <button class="btn" type="button" onclick="loadMine()">查询我的报备</button>
+      <div id="mine_hint" class="hint"></div>
+    </div>
+    <div id="mine_list"></div>
+  </section>
+
+  <div class="admin-link"><a href="/admin">后台管理（下载报表 / 发布通知）</a></div>
 </main>
 
 <!-- 裁剪弹层：拍照后四点框选证件并透视矫正，提升识别准确度 -->
