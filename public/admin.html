@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>后台管理 - 报备系统</title>
+<link rel="stylesheet" href="/style.css" />
+<style>
+  .dl-btns { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0 18px; }
+  .dl-btns a, .dl-btns button {
+    flex: 1 0 auto; padding: 12px 10px; text-align: center; text-decoration: none;
+    background: var(--primary); color: #fff; border: none; border-radius: 10px; font-size: 14px; cursor: pointer;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 7px 8px; text-align: left; }
+  th { background: #f7fafc; position: sticky; top: 0; }
+  .token-bar { display: flex; gap: 8px; margin-bottom: 12px; }
+  .token-bar input { flex: 1; }
+  .date-bar { display: flex; gap: 10px; align-items: center; }
+  .date-bar input[type=date] { flex: 0 0 auto; }
+  .badge { display: inline-block; padding: 1px 7px; border-radius: 6px; font-size: 11px; }
+  .badge.new { background: #ebf8ff; color: #2b6cb0; }
+  .badge.ren { background: #fffaf0; color: #c05621; }
+</style>
+</head>
+<body>
+<header class="app">后台管理 · 报备报表</header>
+<main>
+  <div class="card">
+    <div class="token-bar">
+      <input id="token" placeholder="管理 token" />
+      <button class="btn secondary" style="width:auto;padding:11px 16px" onclick="loadList()">连接</button>
+    </div>
+    <div class="dl-btns">
+      <a href="#" data-type="personnel">下载人员信息</a>
+      <a href="#" data-type="vehicle">下载司机信息</a>
+      <a href="#" data-type="material_in">下载物资进场</a>
+      <a href="#" data-type="material_out">下载物资出场</a>
+      <a href="#" data-type="all">下载全部</a>
+    </div>
+    <div id="stat" class="hint"></div>
+  </div>
+  <div class="card date-bar">
+    <label for="date">报备日期：</label>
+    <input type="date" id="date" />
+    <button class="btn secondary" style="width:auto;padding:11px 16px" onclick="loadList()">查询</button>
+    <span id="dateStat" class="hint"></span>
+  </div>
+  <div class="card" style="padding:0;overflow:auto;max-height:70vh;">
+    <table id="tbl">
+      <thead><tr><th>编号</th><th>类型</th><th>姓名/车牌</th><th>身份证号</th><th>手机</th><th>提交日期</th><th>通行有效期</th><th>状态</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <div class="admin-link"><a href="/">← 返回报备首页</a></div>
+</main>
+<script src="/admin.js"></script>
+</body>
+</html>

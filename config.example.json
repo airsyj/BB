@@ -1,0 +1,46 @@
+{
+  "port": 3000,
+  "adminToken": "change-me-admin-token",
+  "passValidDays": 30,
+  "renewNoticeDays": 7,
+  "uploadsDir": "uploads",
+  "dataDir": "data",
+  "ocr": {
+    "provider": "baidu",
+    "baidu": {
+      "apiKey": "",
+      "secretKey": ""
+    },
+    "llm": {
+      "chain": [
+        {
+          "provider": "openai",
+          "baseURL": "https://api.siliconflow.cn/v1",
+          "apiKey": "",
+          "model": "Qwen/Qwen3-VL-30B-A3B-Instruct",
+          "timeoutMs": 25000
+        },
+        {
+          "provider": "openai",
+          "baseURL": "https://api.siliconflow.cn/v1",
+          "apiKey": "",
+          "model": "Qwen/Qwen3-VL-32B-Instruct",
+          "timeoutMs": 25000
+        },
+        {
+          "provider": "openai",
+          "baseURL": "https://api.siliconflow.cn/v1",
+          "apiKey": "",
+          "model": "Qwen/Qwen3-VL-8B-Instruct",
+          "timeoutMs": 25000
+        },
+        {
+          "provider": "hunyuan",
+          "secretId": "",
+          "secretKey": "",
+          "model": "hunyuan-vision"
+        }
+      ]
+    }
+  }
+}

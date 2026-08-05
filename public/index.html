@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>进场出场报备系统</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<header class="app">市政工程进场出场报备</header>
+
+<nav class="tabs" id="tabs">
+  <button data-tab="personnel" class="active">人员报备</button>
+  <button data-tab="vehicle">车辆报备</button>
+  <button data-tab="material">物资报备</button>
+  <button data-tab="renew">续期报备</button>
+</nav>
+
+<main>
+  <!-- 人员报备 -->
+  <section class="section active" id="sec-personnel">
+    <div class="card">
+      <h3>拍摄身份证 <span class="tag">系统自动识别姓名 / 身份证号 / 有效期</span></h3>
+      <div class="photo-grid">
+        <label class="photo-slot" data-key="p_idFront" data-ocr="idcard_front" data-fill='{"name":"p_name","idNumber":"p_idNumber"}'>
+          <span class="plus">+</span><span class="cap">身份证人像面</span>
+          <span class="ocr-badge">✓</span><img alt="" /><input type="file" accept="image/*" capture="environment" />
+        </label>
+        <label class="photo-slot" data-key="p_idBack" data-ocr="idcard_back" data-fill='{"idValidStart":"p_idValidStart","idValidEnd":"p_idValidEnd"}'>
+          <span class="plus">+</span><span class="cap">身份证国徽面</span>
+          <span class="ocr-badge">✓</span><img alt="" /><input type="file" accept="image/*" capture="environment" />
+        </label>
+      </div>
+    </div>
+    <div class="card">
+      <h3>填写信息</h3>
+      <label class="field"><span class="lbl">人员姓名<span class="req">*</span></span><input id="p_name" placeholder="自动识别或手动填写" /></label>
+      <label class="field"><span class="lbl">身份证号<span class="req">*</span></span><input id="p_idNumber" placeholder="自动识别或手动填写" /></label>
+      <div class="row2">
+        <label class="field"><span class="lbl">有效期起</span><input id="p_idValidStart" placeholder="自动识别" /></label>
+        <label class="field"><span class="lbl">有效期止</span><input id="p_idValidEnd" placeholder="自动识别" /></label>
+      </div>
+      <label class="field"><span class="lbl">手机号<span class="req">*</span></span><input id="p_phone" type="tel" inputmode="numeric" placeholder="11位手机号" /></label>
+      <label class="field"><span class="lbl">是否新办<span class="req">*</span></span>
+        <select id="p_isNew"><option value="是">是（新办）</option><option value="否">否（续期）</option></select></label>
+      <label class="field"><span class="lbl">是否携带笔记本电脑<span class="req">*</span></span>
+        <select id="p_carryLaptop"><option value="否">否</option><option value="是">是</option></select></label>
+      <div id="p_laptop_box" class="hidden">
+        <label class="field"><span class="lbl">笔记本品牌/型号</span><input id="p_laptopModel" placeholder="如 ThinkPad X1" /></label>
+        <label class="field"><span class="lbl">数量</span><input id="p_laptopQty" type="number" min="1" value="1" /></label>
+      </div>
+      <div class="field"><span class="lbl">访客照片（可选）</span>
+        <label class="photo-slot" data-key="p_visitorPhoto"><span class="plus">+</span><span class="cap">访客照片</span><span class="ocr-badge">✓</span><img alt="" /><input type="file" accept="image/*" capture="environment" /></label>
+      </div>
+      <div id="p_hint" class="hint"></div>
+      <button class="btn" onclick="submitPersonnel()">提交报备</button>
+    </div>
+  </section>
+
+  <!-- 车辆报备 -->
+  <section class="section" id="sec-vehicle">
+    <div class="card">
+      <h3>拍摄证件 <span class="tag">自动识别驾驶证 / 行驶证 / 驾驶员身份证</span></h3>
+      <div class="photo-grid">
+        <label class="photo-slot" data-key="v_licenseFront" data-ocr="driving_license" data-fill='{"licenseName":"v_licenseName","licenseNo":"v_licenseNo","licenseValid":"v_licenseValid"}'>
+          <span class="plus">+</span><span class="cap">驾驶证主页</span><span class="ocr-badge">✓</span><img alt="" /><input type="file" accept="image/*" capture="environment" /></label>
+        <label class="photo-slot" data-key="v_licenseBack"><span class="plus">+</span><span class="cap">驾驶证副页</span><span class="ocr-badge">✓</span><img alt="" /><input type="file" accept="image/*" capture="environment" /></label>
+        <label class="photo-slot" data-key="v_regFront" data-ocr="vehicle_license" data-fill='{"plate":"v_plate","vehicleBrand":"v_vehicleBrand","vehicleModel":"v_vehicleModel"}'>
+          <span class="plus">+</span><span class="cap">行驶证主页</span><span class="ocr-badge">✓</span><img alt="" /><input type="file" accept="image/*" capture="environment" /></label>
+        <label class="photo-slot" data-key="v_regBack1"><span class="plus">+</span><span class="cap">行驶证副页</span><span class="ocr-badge">✓</span><img alt="" /><input type="file" accept="image/*" capture="environment" /></label>
+        <label class="photo-slot" data-key="v_idFront" data-ocr="idcard_front" data-fill='{"name":"v_driverIdName","idNumber":"v_driverIdNumber"}'>
+          <span class="plus">+</span><span class="cap">驾驶员身份证人像面</span><span class="ocr-badge">✓</span><img alt="" /><input type="file" accept="image/*" capture="environment" /></label>
+        <label class="photo-slot" data-key="v_idBack" data-ocr="idcard_back" data-fill='{"idValidStart":"v_driverIdValidStart","idValidEnd":"v_driverIdValidEnd"}'>
+          <span class="plus">+</span><span class="cap">驾驶员身份证国徽面</span><span class="ocr-badge">✓</span><img alt="" /><input type="file" accept="image/*" capture="environment" /></label>
+      </div>
+    </div>
+    <div class="card">
+      <h3>填写信息</h3>
+      <label class="field"><span class="lbl">驾驶证姓名<span class="req">*</span></span><input id="v_licenseName" placeholder="自动识别" /></label>
+      <label class="field"><span class="lbl">驾驶证有效期限</span><input id="v_licenseValid" placeholder="自动识别（如 2019.01.01-2025.01.01）" /></label>
+      <label class="field"><span class="lbl">身份证姓名<span class="req">*</span></span><input id="v_driverIdName" placeholder="自动识别" /></label>
+      <label class="field"><span class="lbl">身份证号<span class="req">*</span></span><input id="v_driverIdNumber" placeholder="自动识别" /></label>
+      <div class="row2">
+        <label class="field"><span class="lbl">身份证有效期起</span><input id="v_driverIdValidStart" placeholder="自动识别" /></label>
+        <label class="field"><span class="lbl">身份证有效期止</span><input id="v_driverIdValidEnd" placeholder="自动识别" /></label>
+      </div>
+      <div class="row2">
+        <label class="field"><span class="lbl">车牌号<span class="req">*</span></span><input id="v_plate" placeholder="自动识别" /></label>
+        <label class="field"><span class="lbl">车辆类型<span class="req">*</span></span>
+          <select id="v_vehicleType"><option value="客车">客车</option><option value="货车">货车</option></select></label>
+      </div>
+      <div class="row2">
+        <label class="field"><span class="lbl">车品牌<span class="req">*</span></span><input id="v_vehicleBrand" placeholder="自动识别" /></label>
+        <label class="field"><span class="lbl">车型号<span class="req">*</span></span><input id="v_vehicleModel" placeholder="自动识别" /></label>
+      </div>
+      <label class="field"><span class="lbl">行驶证年检是否过期<span class="req">*</span></span>
+        <select id="v_annualInspection"><option value="否">否</option><option value="是">是</option></select></label>
+      <label class="field"><span class="lbl">手机号<span class="req">*</span></span><input id="v_phone" type="tel" inputmode="numeric" placeholder="11位手机号" /></label>
+      <label class="field"><span class="lbl">是否新办<span class="req">*</span></span>
+        <select id="v_isNew"><option value="是">是（新办）</option><option value="否">否（续期）</option></select></label>
+      <div id="v_hint" class="hint"></div>
+      <button class="btn" onclick="submitVehicle()">提交报备</button>
+    </div>
+  </section>
+
+  <!-- 物资报备（进场/出场合并） -->
+  <section class="section" id="sec-material">
+    <div class="card">
+      <h3>报备类型</h3>
+      <label class="field"><span class="lbl">进场 / 出场<span class="req">*</span></span>
+        <select id="m_type">
+          <option value="material_in">物资进场</option>
+          <option value="material_out">物资出场</option>
+        </select></label>
+    </div>
+    <div class="card">
+      <h3>物资信息</h3>
+      <label class="field"><span class="lbl">物品名称<span class="req">*</span></span><input id="m_name" /></label>
+      <div class="row2">
+        <label class="field"><span class="lbl">计量单位<span class="req">*</span></span><input id="m_unit" placeholder="如 吨/箱/个" /></label>
+        <label class="field"><span class="lbl">物品数量<span class="req">*</span></span><input id="m_qty" type="number" min="0" /></label>
+      </div>
+      <div class="row2">
+        <label class="field"><span class="lbl">图号</span><input id="m_drawing" /></label>
+        <label class="field"><span class="lbl">材质</span><input id="m_material" /></label>
+      </div>
+      <div class="row2">
+        <label class="field"><span class="lbl">材质规格</span><input id="m_spec" /></label>
+        <label class="field"><span class="lbl">尺寸</span><input id="m_size" /></label>
+      </div>
+      <div class="row2">
+        <label class="field"><span class="lbl">重量</span><input id="m_weight" /></label>
+        <label class="field"><span class="lbl">材料牌号</span><input id="m_grade" /></label>
+      </div>
+      <label class="field"><span class="lbl">备注</span><input id="m_remark" /></label>
+    </div>
+    <div class="card">
+      <h3>关联报备车辆及驾驶员 <span class="tag">先填手机号，自动带出历史信息</span></h3>
+      <label class="field"><span class="lbl">驾驶员电话<span class="req">*</span></span>
+        <input id="m_driverPhone" type="tel" inputmode="numeric" placeholder="填完手机号自动填充下方信息" /></label>
+      <div id="m_fill_hint" class="hint"></div>
+      <div class="row2">
+        <label class="field"><span class="lbl">驾驶员姓名<span class="req">*</span></span><input id="m_driverName" /></label>
+        <label class="field"><span class="lbl">驾驶员身份证号<span class="req">*</span></span><input id="m_driverIdNumber" /></label>
+      </div>
+      <label class="field"><span class="lbl">车牌号</span><input id="m_plate" placeholder="拉物资的车辆" /></label>
+      <div class="row2">
+        <label class="field"><span class="lbl">车辆品牌</span><input id="m_brand" /></label>
+        <label class="field"><span class="lbl">车辆型号</span><input id="m_model" /></label>
+      </div>
+    </div>
+    <div class="card">
+      <h3>时间信息</h3>
+      <div id="m_in_box">
+        <label class="field"><span class="lbl">进厂日期<span class="req">*</span></span><input id="m_in_time" type="date" /></label>
+        <div class="hint">当天任意时间均可进场，只需选择日期</div>
+      </div>
+      <div id="m_out_box" style="display:none">
+        <label class="field"><span class="lbl">出场日期<span class="req">*</span></span><input id="m_out_time" type="date" /></label>
+        <label class="field"><span class="lbl">报备手机号<span class="req">*</span></span><input id="m_phone" type="tel" inputmode="numeric" /></label>
+      </div>
+      <div id="m_hint" class="hint"></div>
+      <button class="btn" onclick="submitMaterial()">提交报备</button>
+    </div>
+  </section>
+
+  <!-- 续期报备 -->
+  <section class="section" id="sec-renew">
+    <div class="card">
+      <h3>查询以往报备</h3>
+      <label class="field"><span class="lbl">报备类型</span>
+        <select id="r_type"><option value="personnel">人员</option><option value="vehicle">车辆/司机</option></select></label>
+      <div class="row2">
+        <label class="field"><span class="lbl">身份证号</span><input id="r_id" placeholder="输入身份证号" /></label>
+        <label class="field"><span class="lbl">或手机号</span><input id="r_phone" type="tel" placeholder="输入手机号" /></label>
+      </div>
+      <button class="btn secondary" type="button" onclick="lookupRenew()">查询并带入信息</button>
+      <div id="r_lookup_hint" class="hint"></div>
+    </div>
+    <div class="card" id="r_form" style="display:none">
+      <h3>续期信息</h3>
+      <label class="field"><span class="lbl">姓名</span><input id="r_name" /></label>
+      <label class="field"><span class="lbl">身份证号</span><input id="r_idNum" /></label>
+      <div class="field"><span class="lbl">上传通行证（可选）</span>
+        <label class="photo-slot" data-key="r_passPhoto"><span class="plus">+</span><span class="cap">通行证照片</span><span class="ocr-badge">✓</span><img alt="" /><input type="file" accept="image/*" capture="environment" /></label></div>
+      <label class="field"><span class="lbl">临时出入证编码</span><input id="r_passNo" placeholder="通行证上的编号" /></label>
+      <label class="field"><span class="lbl">通行证到期日<span class="req">*</span></span><input id="r_validUntil" type="date" /></label>
+      <label class="field"><span class="lbl">手机号</span><input id="r_phone2" type="tel" /></label>
+      <div id="r_hint" class="hint"></div>
+      <button class="btn" onclick="submitRenew()">提交续期</button>
+    </div>
+  </section>
+
+  <div class="admin-link"><a href="/admin">后台管理（下载报表）</a></div>
+</main>
+
+<!-- 裁剪弹层：拍照后四点框选证件并透视矫正，提升识别准确度 -->
+<div class="crop-overlay" id="cropOverlay">
+  <div class="crop-head">
+    <span class="title">框选证件四角</span>
+    <span class="sub">拖动四个蓝色角点对齐证件边缘</span>
+  </div>
+  <div class="crop-stage" id="cropStage">
+    <canvas id="cropDim" class="crop-dim"></canvas>
+    <span class="corner" data-c="0" title="左上"></span>
+    <span class="corner" data-c="1" title="右上"></span>
+    <span class="corner" data-c="2" title="右下"></span>
+    <span class="corner" data-c="3" title="左下"></span>
+  </div>
+  <div class="crop-foot">
+    <button class="btn secondary" id="cropRotate" type="button">旋转</button>
+    <button class="btn secondary" id="cropCancel" type="button">取消</button>
+    <button class="btn" id="cropOk" type="button">确认裁剪</button>
+  </div>
+</div>
+
+<!-- 提交前确认弹层：核对关键信息，确认后才真正提交 -->
+<div class="modal-overlay" id="confirmOverlay">
+  <div class="modal">
+    <div class="modal-title">请核对报备信息</div>
+    <div class="modal-body" id="confirmBody"></div>
+    <div class="modal-foot">
+      <button class="btn secondary" id="confirmCancel" type="button">返回修改</button>
+      <button class="btn" id="confirmOk" type="button">确认提交</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
