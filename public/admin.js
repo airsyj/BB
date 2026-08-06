@@ -137,7 +137,7 @@ async function downloadType(type) {
   }
 }
 
-// ---- 全选：一次性选中所有“有数据的日期” ----
+// ---- 全选：一次性选中所有“有数据的日期”，并自动跳到最早有数据的月份 ----
 async function selectAllDates() {
   const token = getToken();
   if (!token) return alert('请先填写 token 并连接');
@@ -149,9 +149,19 @@ async function selectAllDates() {
     if (!j.ok) { stat.textContent = ''; return alert('token 错误'); }
     const set = new Set((j.list || []).map((x) => x.createdAtStr).filter(Boolean));
     selDates = set;
+    if (!set.size) { stat.textContent = '当前没有任何报备记录'; renderCal(); return; }
+    // 自动跳转到“最早有数据的月份”，让选中的蓝点在日历上可见，避免看起来“没反应”
+    const sorted = Array.from(set).sort();
+    const earliest = sorted[0];
+    viewY = Number(earliest.slice(0, 4));
+    viewM = Number(earliest.slice(5, 7)) - 1;
     renderCal();
+    // 先无筛选拉一次，拿到总数做提示
+    const allR = await fetch('/api/reports?token=' + encodeURIComponent(token));
+    const allJ = await allR.json();
+    const total = (allJ.list || []).length;
     loadList();
-    stat.textContent = '';
+    stat.textContent = `已全选 ${set.size} 天（共 ${total} 条记录）。导出表格即包含全部，不会漏掉任何人。`;
   } catch (e) {
     stat.textContent = '';
     alert('读取失败');

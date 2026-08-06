@@ -68,6 +68,66 @@ function fmtId(ts) {
   return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}`;
 }
 
+// ---- 应用启动时的幂等迁移：为旧格式（非日期型）编号的记录补上 YYYYMMDDHHMMSS 编号 ----
+// 旧记录（如批量导入的 ARC...）没有日期型编号，无法按日期检索。这里按它们各自的日期
+// 补生成编号（同一天多条则在该日 08:00:00 起逐秒递增，保证唯一），并同步 createdAt/createdAtStr。
+// 重跑完全无害：编号已是 14 位数字的记录会被跳过。
+async function migrateOldIds() {
+  try {
+    const all = await store.all();
+    const needFix = all.filter((r) => !/^\d{14}$/.test(String(r.id || '')));
+    if (!needFix.length) {
+      console.log('[migrate] 无旧格式编号记录，跳过迁移');
+      return;
+    }
+    const used = new Set(all.map((r) => String(r.id || '')));
+    const dateOf = (r) => {
+      if (r.createdAtStr && /^\d{4}-\d{2}-\d{2}$/.test(r.createdAtStr)) return r.createdAtStr;
+      if (r.createdAt) {
+        const d = cst(r.createdAt);
+        const p = (n) => String(n).padStart(2, '0');
+        return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}`;
+      }
+      return '1970-01-01';
+    };
+    // 按日期分组，保证同组内编号唯一
+    const byDate = {};
+    for (const r of needFix) {
+      const d = dateOf(r);
+      (byDate[d] = byDate[d] || []).push(r);
+    }
+    let changed = 0;
+    for (const d of Object.keys(byDate)) {
+      const [Y, M, D] = d.split('-').map(Number);
+      const base = Date.parse(`${d}T00:00:00+08:00`);
+      let total = 8 * 3600; // 从当天 08:00:00 起分配，避免与凌晨真实提交冲突
+      const pad = (n) => String(n).padStart(2, '0');
+      for (const r of byDate[d]) {
+        let id;
+        do {
+          const hh = Math.floor(total / 3600);
+          const mm = Math.floor((total % 3600) / 60);
+          const ss = total % 60;
+          id = `${Y}${pad(M)}${pad(D)}${pad(hh)}${pad(mm)}${pad(ss)}`;
+          total++;
+        } while (used.has(id));
+        used.add(id);
+        r.id = id;
+        r.createdAtStr = d;
+        r.createdAt = base + (total - 1) * 1000;
+        changed++;
+      }
+    }
+    if (changed) {
+      await store.replaceAll(all);
+      console.log(`[migrate] 已为 ${changed} 条旧记录补上日期型编号`);
+    }
+  } catch (e) {
+    // 迁移失败不影响正常服务
+    console.error('[migrate] 旧记录编号迁移失败（不影响正常运行）：', e && (e.stack || e.message || e));
+  }
+}
+
 function adminOk(url) {
   const t = url.searchParams.get('token');
   return t && t === config.adminToken;
@@ -557,3 +617,6 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`报备系统已启动: http://localhost:${PORT}  (healthz: /healthz)`);
   console.log(`后台管理: http://localhost:${PORT}/admin  (token: ${config.adminToken})`);
 });
+
+// 启动后跑一次旧记录编号迁移（幂等；失败不影响正常服务）
+migrateOldIds().catch((e) => console.error('[migrate] 迁移异常：', e && (e.stack || e.message || e)));
