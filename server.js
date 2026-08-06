@@ -242,7 +242,11 @@ function serveStatic(req, res, url) {
       return res.end('Not found');
     }
     const ext = path.extname(filePath).toLowerCase();
-    res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
+    // no-cache：每次刷新都向服务器校验，部署后用户立即看到新版，避免浏览器缓存旧 admin 页面
+    res.writeHead(200, {
+      'Content-Type': MIME[ext] || 'application/octet-stream',
+      'Cache-Control': 'no-cache',
+    });
     res.end(data);
   });
 }
