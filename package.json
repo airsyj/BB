@@ -1,7 +1,7 @@
 {
   "name": "report-system",
   "version": "1.0.0",
-  "description": "市政工程进场出场报备系统",
+  "description": "北京恒基西安报备系统",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
