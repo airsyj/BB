@@ -5,7 +5,7 @@ const path = require('path');
 const config = require('./lib/config');
 const store = require('./lib/store');
 const ocr = require('./lib/ocr');
-const { recognize } = require('./lib/llm-ocr');
+const { recognize, PROMPTS } = require('./lib/llm-ocr');
 const exporter = require('./lib/export');
 const storage = require('./lib/storage');
 const ExcelJS = require('exceljs');
@@ -221,6 +221,24 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    // ---- 客户端 OCR 配置（供手机端浏览器直连大模型，绕开云托管请求超时） ----
+    if (req.method === 'GET' && pathname === '/api/ocr-config') {
+      const llm = (config.ocr && config.ocr.llm) || {};
+      const chain = (llm.chain && llm.chain.length) ? llm.chain : [llm.primary, llm.secondary].filter(Boolean);
+      // 优先把第一个 openai(SiliconFlow) 配置交给前端直连
+      const vis = chain.find((c) => c && c.provider === 'openai') || chain[0] || {};
+      const kind = url.searchParams.get('kind') || '';
+      const prompt = (PROMPTS && PROMPTS[kind]) || '';
+      return sendJson(res, 200, {
+        ok: true,
+        provider: vis.provider || '',
+        baseURL: vis.baseURL || '',
+        apiKey: vis.apiKey || '',
+        model: vis.model || '',
+        prompt,
+      });
+    }
+
     // ---- 证件 OCR ----
     if (req.method === 'POST' && pathname === '/api/ocr') {
       const body = JSON.parse(await readBody(req));
@@ -251,8 +269,10 @@ const server = http.createServer(async (req, res) => {
       const cfgList = llm.chain && llm.chain.length
         ? llm.chain
         : [llm.primary, llm.secondary].filter(Boolean);
+      // 整体超时保护：云托管单次请求有上限，避免无限等待
+      const hardTimeout = new Promise((_, rej) => setTimeout(() => rej(new Error('OCR 超时，请手动填写')), 45000));
       try {
-        const { data, meta } = await recognize(dataUrl, kind, cfgList);
+        const { data, meta } = await Promise.race([recognize(dataUrl, kind, cfgList), hardTimeout]);
         if (data && Object.keys(data).length) {
           return sendJson(res, 200, { ok: true, data, meta });
         }

@@ -69,6 +69,110 @@ function compress(file, maxDim = 2000, quality = 0.92) {
   });
 }
 
+// ============ 客户端直连 OCR（手机端浏览器直接调大模型，绕开云托管请求超时） ============
+function recompress(dataUrl, maxDim = 1280, quality = 0.85) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > maxDim || height > maxDim) {
+        const s = Math.max(width, height) / maxDim;
+        width = Math.round(width / s); height = Math.round(height / s);
+      }
+      const c = document.createElement('canvas');
+      c.width = width; c.height = height;
+      const cx = c.getContext('2d');
+      cx.imageSmoothingEnabled = true; cx.imageSmoothingQuality = 'high';
+      cx.drawImage(img, 0, 0, width, height);
+      resolve(c.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
+function ocrExtractJson(text) {
+  if (!text) return {};
+  let t = String(text).replace(/```json/gi, '```').replace(/```/g, ' ');
+  const m = t.match(/\{[\s\S]*\}/);
+  if (!m) return {};
+  try { return JSON.parse(m[0]); } catch {}
+  try { return JSON.parse(m[0].replace(/'/g, '"').replace(/,\s*([}\]])/g, '$1')); } catch { return {}; }
+}
+function ocrToHalf(s){ return String(s||'').replace(/[\uFF01-\uFF5E]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xfee0)).replace(/\u3000/g,' ').trim(); }
+function ocrCleanId(s){ return ocrToHalf(s).replace(/[\s\-—–_·.]/g,'').toUpperCase(); }
+function ocrCleanPlate(s){ return ocrToHalf(s).replace(/[\s\-·•]/g,'').toUpperCase(); }
+function ocrCleanDate(s){
+  const v=ocrToHalf(s); if(!v) return '';
+  if(/长期/.test(v)) return '长期';
+  const m=v.match(/(\d{4})\s*[.\-\/年]\s*(\d{1,2})\s*[.\-\/月]\s*(\d{1,2})/);
+  if(!m) return v;
+  return `${m[1]}.${String(m[2]).padStart(2,'0')}.${String(m[3]).padStart(2,'0')}`;
+}
+function ocrSplitBrandModel(brand, model){
+  let b=ocrToHalf(brand), m=ocrToHalf(model);
+  const whole=(b && m && b===m)?b:'';
+  const src=whole||(b && !m?b:'');
+  if(src){ const i=src.indexOf('牌'); if(i>0) return {vehicleBrand:src.slice(0,i+1), vehicleModel:src.slice(i+1).trim()}; const cn=src.match(/^[\u4e00-\u9fa5]+/); if(cn) return {vehicleBrand:cn[0], vehicleModel:src.slice(cn[0].length).trim()}; }
+  return {vehicleBrand:b, vehicleModel:m};
+}
+function ocrNormalize(o, kind){
+  const g=(k)=>{ const v=o[k]; return (v==null?'':String(v).trim()); };
+  const out={};
+  const name=g('name'); if(name) out.name=name.replace(/[\s·．.、,，:：]/g,'').replace(/^姓名/,'');
+  const idn=g('idNumber'); if(idn) out.idNumber=ocrCleanId(idn);
+  const lis=g('idValidStart'); if(lis) out.idValidStart=ocrCleanDate(lis);
+  const lie=g('idValidEnd'); if(lie) out.idValidEnd=ocrCleanDate(lie);
+  const ln=g('licenseName'); if(ln) out.licenseName=ln.replace(/[\s·．.、,，:：]/g,'').replace(/^姓名/,'');
+  const lno=g('licenseNo'); if(lno) out.licenseNo=ocrCleanId(lno);
+  const lc=g('licenseClass'); if(lc) out.licenseClass=ocrToHalf(lc).toUpperCase();
+  const lv=g('licenseValid'); if(lv) out.licenseValid=ocrCleanDate(lv);
+  const plate=g('plate'); if(plate) out.plate=ocrCleanPlate(plate);
+  if(kind==='vehicle_license'){
+    const bm=ocrSplitBrandModel(g('vehicleBrand'), g('vehicleModel'));
+    if(bm.vehicleBrand) out.vehicleBrand=bm.vehicleBrand;
+    if(bm.vehicleModel) out.vehicleModel=bm.vehicleModel;
+    const vt=g('vehicleTypeRaw')||g('vehicleType'); if(vt){ out.vehicleTypeRaw=vt; out.vehicleType=/客车|轿车|越野|商务|面包|专项作业|校车/.test(vt)?'客车':'货车'; }
+  } else {
+    const vb=g('vehicleBrand'); if(vb) out.vehicleBrand=ocrToHalf(vb);
+    const vm=g('vehicleModel'); if(vm) out.vehicleModel=ocrToHalf(vm);
+  }
+  for(const k of Object.keys(out)) if(out[k]==='') delete out[k];
+  return out;
+}
+
+// 手机端浏览器直接调用大模型视觉识别（绕开云托管单次请求超时，速度最快）
+async function clientOcr(dataUrl, kind){
+  let cfg;
+  try{
+    const r=await fetch('/api/ocr-config?kind='+encodeURIComponent(kind));
+    const j=await r.json();
+    if(!j.ok || !j.apiKey) return null;
+    cfg=j;
+  }catch(e){ return null; }
+  const ctrl=new AbortController();
+  const timer=setTimeout(()=>ctrl.abort(), 40000);
+  try{
+    const r=await fetch(cfg.baseURL.replace(/\/$/,'')+'/chat/completions',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+cfg.apiKey},
+      body:JSON.stringify({model:cfg.model, temperature:0, top_p:0.1, max_tokens:512, messages:[
+        {role:'system', content:'你是专业的中国证件 OCR 引擎。逐字精读图片，只输出 JSON，绝不输出解释文字。'},
+        {role:'user', content:[
+          {type:'image_url', image_url:{url:dataUrl, detail:'high'}},
+          {type:'text', text: cfg.prompt || '请识别图中证件关键信息，只输出 JSON'}
+        ]}
+      ]}),
+      signal:ctrl.signal
+    });
+    if(!r.ok) return null;
+    const j=await r.json();
+    const text=j.choices?.[0]?.message?.content||'';
+    const data=ocrNormalize(ocrExtractJson(text), kind);
+    return (data && Object.keys(data).length) ? data : null;
+  }catch(e){ return null; } finally { clearTimeout(timer); }
+}
+
 // ============ 照片上传 + 裁剪 + OCR ============
 function setupPhotos() {
   const sheet = document.getElementById('photoSheet');
@@ -419,34 +523,46 @@ function invert3(m) {
   ];
 }
 
-// 识别顺序：AI 视觉大模型（最准）→ 百度结构化 OCR → 本地兜底
+// 识别顺序：手机端浏览器直连大模型（最快）→ 服务端大模型兜底 → 百度 → 本地兜底
 async function doOcr(slot, dataUrl) {
   slot.classList.add('ocring');
-  toast('AI 正在识别证件…');
-  // 1) 大模型视觉识别：多模型链路 + 校验位复核，准确度最高
+  toast('AI 识别中（可先手动填写，不影响提交）');
+  // 送 OCR 的图再压缩一次，减小体积、加快速度
+  const ocrImg = await recompress(dataUrl, 1280, 0.85);
+
+  // 1) 手机端浏览器直连大模型（绕开云托管请求超时，速度最快最稳）
+  try {
+    const d = await clientOcr(ocrImg, slot.dataset.ocr);
+    if (d && Object.keys(d).length) {
+      fillFields(slot, d);
+      slot.classList.remove('ocring');
+      toast('已自动填入 ✓（如号码有误请核对修改）');
+      return;
+    }
+  } catch (e) { /* 继续 */ }
+
+  // 2) 服务端大模型兜底
   try {
     const r = await fetch('/api/ocr-llm', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: dataUrl, kind: slot.dataset.ocr }),
+      body: JSON.stringify({ image: ocrImg, kind: slot.dataset.ocr }),
     });
     const j = await r.json();
     if (j.ok && j.data && Object.keys(j.data).length) {
       fillFields(slot, j.data);
       slot.classList.remove('ocring');
-      toast(j.meta && j.meta.verified === false
-        ? '已填入，号码未通过校验请仔细核对'
-        : '已自动填入并通过校验 ✓');
+      toast('已自动填入 ✓（如号码有误请核对修改）');
       return;
     }
   } catch (e) { /* 继续 */ }
 
-  // 2) 百度结构化 OCR（在 config.json 配置百度密钥后生效）
+  // 3) 百度结构化 OCR（配置百度密钥后生效）
   try {
     const r = await fetch('/api/ocr', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: dataUrl, kind: slot.dataset.ocr }),
+      body: JSON.stringify({ image: ocrImg, kind: slot.dataset.ocr }),
     });
     const j = await r.json();
     if (j.ok && j.data && Object.keys(j.data).length) {
@@ -457,9 +573,9 @@ async function doOcr(slot, dataUrl) {
     }
   } catch (e) { /* 继续 */ }
 
-  // 3) 本地 OCR 兜底（无需密钥，精度有限，需联网加载识别库）
+  // 4) 本地 OCR 兜底
   try {
-    const data = await ocrLocal(dataUrl, slot.dataset.ocr);
+    const data = await ocrLocal(ocrImg, slot.dataset.ocr);
     if (data && Object.keys(data).length) {
       fillFields(slot, data);
       slot.classList.remove('ocring');
