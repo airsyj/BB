@@ -97,6 +97,7 @@ function setupPhotos() {
   // 点击证件格 → 弹出「拍照 / 从相册选择」
   document.querySelectorAll('.photo-slot').forEach((slot) => {
     slot.addEventListener('click', (e) => {
+      if (e.target.tagName === 'INPUT') return; // 程序触发 input.click() 时跳过，避免重复处理/取消选择器
       e.preventDefault();
       e.stopPropagation();
       currentSlot = slot;
@@ -117,6 +118,12 @@ function setupPhotos() {
   document.getElementById('sheetAlbum').addEventListener('click', () => pick(false));
   document.getElementById('sheetCancel').addEventListener('click', () => { sheet.classList.remove('show'); currentSlot = null; });
   sheet.addEventListener('click', (e) => { if (e.target === sheet) { sheet.classList.remove('show'); currentSlot = null; } });
+  // 电脑端无摄像头：把"拍照"按钮文案改为"选择文件"，避免误导（功能仍有效，走系统文件选择）
+  const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || 'ontouchstart' in window;
+  if (!isMobile) {
+    const camBtn = document.getElementById('sheetCamera');
+    if (camBtn) camBtn.textContent = '📁 选择文件';
+  }
 }
 
 // ============ 裁剪弹层（四点透视矫正 + 自动检测 + 旋转） ============
