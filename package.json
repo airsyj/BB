@@ -7,7 +7,8 @@
     "start": "node server.js"
   },
   "dependencies": {
-    "exceljs": "^4.4.0"
+    "exceljs": "^4.4.0",
+    "@cloudbase/node-sdk": "^3.5.1"
   },
   "engines": {
     "node": ">=18"

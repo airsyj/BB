@@ -1,19 +1,16 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
 
 const config = require('./lib/config');
 const store = require('./lib/store');
 const ocr = require('./lib/ocr');
 const { recognize } = require('./lib/llm-ocr');
 const exporter = require('./lib/export');
+const storage = require('./lib/storage');
 
 const ROOT = __dirname;
 const PUBLIC = path.join(ROOT, 'public');
-// uploadsDir 支持绝对路径（云托管挂载 CFS 时传 /data/uploads），绝对路径直接使用，避免被拼到 ROOT 下
-const UPLOADS = path.isAbsolute(config.uploadsDir) ? config.uploadsDir : path.join(ROOT, config.uploadsDir);
-fs.mkdirSync(UPLOADS, { recursive: true });
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -42,27 +39,6 @@ function readBody(req) {
     req.on('end', () => resolve(d));
     req.on('error', reject);
   });
-}
-
-// 保存 base64 图片，返回文件名；非图片原样返回
-function savePhoto(val) {
-  if (typeof val !== 'string' || !val.startsWith('data:image/')) return val;
-  const m = val.match(/^data:(image\/\w+);base64,(.*)$/);
-  if (!m) return '';
-  const ext = m[1].split('/')[1] === 'jpeg' ? 'jpg' : m[1].split('/')[1];
-  const buf = Buffer.from(m[2], 'base64');
-  const name = crypto.randomBytes(10).toString('hex') + '.' + ext;
-  fs.writeFileSync(path.join(UPLOADS, name), buf);
-  return name;
-}
-
-// 递归处理 fields：把其中所有 base64 图片落盘为文件
-function persistPhotos(fields) {
-  const out = {};
-  for (const k of Object.keys(fields || {})) {
-    out[k] = savePhoto(fields[k]);
-  }
-  return out;
 }
 
 // 统一使用北京时间（UTC+8），避免云托管容器默认 UTC 时区导致日期错位（影响按日期导出/我的报备）
@@ -145,7 +121,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (errs.length) return sendJson(res, 400, { ok: false, error: errs.join('；') });
       const createdAt = Date.now();
-      const fields = persistPhotos(body.fields || {});
+      const fields = await storage.persistPhotos(body.fields || {});
       // 不自动生成“报备到期日”：具体到期日以向甲方报备为准，当前未知
       const passExpiry = body.passExpiry || '';
       const record = {
@@ -158,7 +134,7 @@ const server = http.createServer(async (req, res) => {
         passNo: fields.passNo || '',
         fields,
       };
-      store.add(record);
+      await store.add(record);
       return sendJson(res, 200, {
         ok: true,
         id: record.id,
@@ -214,7 +190,7 @@ const server = http.createServer(async (req, res) => {
       const phone = url.searchParams.get('phone') || '';
       const plate = url.searchParams.get('plate') || '';
       const prefer = url.searchParams.get('prefer') || '';
-      const list = store.lookup({ idNumber, phone, plate, prefer });
+      const list = await store.lookup({ idNumber, phone, plate, prefer });
       if (!list.length) return sendJson(res, 200, { ok: false, found: false });
       const last = list[0];
       // 车辆/驾驶员相关字段在多条历史记录间逐字段回填，尽量补全
@@ -249,7 +225,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && pathname === '/api/reports') {
       if (!adminOk(url)) return sendJson(res, 401, { ok: false, error: 'token 错误' });
       const date = url.searchParams.get('date') || '';
-      const all = store.all();
+      const all = await store.all();
       const list = (date ? all.filter((r) => r.createdAtStr === date) : all).map((r) => ({
         id: r.id,
         type: r.type,
@@ -280,7 +256,7 @@ const server = http.createServer(async (req, res) => {
 
     // ---- 通知：公开读取（首页横幅） ----
     if (req.method === 'GET' && pathname === '/api/notices') {
-      return sendJson(res, 200, { ok: true, list: store.listNotices() });
+      return sendJson(res, 200, { ok: true, list: await store.listNotices() });
     }
 
     // ---- 通知：超级管理员发布 ----
@@ -289,7 +265,7 @@ const server = http.createServer(async (req, res) => {
       const body = JSON.parse(await readBody(req));
       const text = (body.text || '').trim();
       if (!text) return sendJson(res, 400, { ok: false, error: '通知内容不能为空' });
-      const n = store.addNotice(text, 'admin');
+      const n = await store.addNotice(text, 'admin');
       return sendJson(res, 200, { ok: true, notice: n });
     }
 
@@ -297,7 +273,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'DELETE' && pathname === '/api/notices') {
       if (!adminOk(url)) return sendJson(res, 401, { ok: false, error: 'token 错误' });
       const id = url.searchParams.get('id') || '';
-      store.deleteNotice(id);
+      await store.deleteNotice(id);
       return sendJson(res, 200, { ok: true });
     }
 
@@ -306,7 +282,7 @@ const server = http.createServer(async (req, res) => {
       const idNumber = url.searchParams.get('idNumber') || '';
       const phone = url.searchParams.get('phone') || '';
       const name = url.searchParams.get('name') || '';
-      const c = store.conflicts({ idNumber, phone, name });
+      const c = await store.conflicts({ idNumber, phone, name });
       return sendJson(res, 200, { ok: true, conflicts: c });
     }
 
@@ -315,7 +291,7 @@ const server = http.createServer(async (req, res) => {
       const idNumber = url.searchParams.get('idNumber') || '';
       const phone = url.searchParams.get('phone') || '';
       if (!idNumber || !phone) return sendJson(res, 400, { ok: false, error: '请填写身份证号与手机号' });
-      const list = store.mine({ idNumber, phone }).map((r) => ({
+      const list = (await store.mine({ idNumber, phone })).map((r) => ({
         id: r.id,
         type: r.type,
         isRenewal: r.isRenewal,
@@ -332,13 +308,13 @@ const server = http.createServer(async (req, res) => {
       const body = JSON.parse(await readBody(req));
       const idNumber = body.idNumber || '';
       const phone = body.phone || '';
-      const rec = store.findById(id);
+      const rec = await store.findById(id);
       if (!rec) return sendJson(res, 404, { ok: false, error: '记录不存在' });
       const o = store.ownerOf(rec);
       const idMatch = idNumber && o.ids.includes(idNumber);
       const phMatch = phone && o.phones.includes(phone);
       if (!idMatch || !phMatch) return sendJson(res, 403, { ok: false, error: '只能修改本人报备的内容' });
-      const fields = persistPhotos(body.fields || {});
+      const fields = await storage.persistPhotos(body.fields || {});
       const ue = [];
       for (const k of ['idNumber', 'driverIdNumber']) {
         if (fields[k] && String(fields[k]).length === 18 && !checkIdNumber(fields[k])) ue.push('身份证号校验未通过');
@@ -347,8 +323,25 @@ const server = http.createServer(async (req, res) => {
         if (fields[k] && !phoneOk(fields[k])) ue.push('手机号格式不正确');
       }
       if (ue.length) return sendJson(res, 400, { ok: false, error: ue.join('；') });
-      store.update(id, fields);
+      await store.update(id, fields);
       return sendJson(res, 200, { ok: true, id });
+    }
+
+    // ---- 读取已上传图片（本地文件 / 云存储临时 URL） ----
+    if (req.method === 'GET' && pathname === '/api/photo') {
+      const p = url.searchParams.get('path') || '';
+      const result = await storage.readPhoto(p);
+      if (!result) {
+        res.writeHead(404);
+        return res.end('Not found');
+      }
+      if (result.type === 'redirect' && result.url) {
+        res.writeHead(302, { Location: result.url });
+        return res.end();
+      }
+      const ext = path.extname(p).toLowerCase();
+      res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
+      return res.end(result.buffer);
     }
 
     // ---- 静态资源 ----
