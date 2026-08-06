@@ -8,7 +8,7 @@
   },
   "dependencies": {
     "exceljs": "^4.4.0",
-    "@cloudbase/node-sdk": "^3.5.1"
+    "@cloudbase/node-sdk": "^2.5.2"
   },
   "engines": {
     "node": ">=18"
