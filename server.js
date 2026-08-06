@@ -10,6 +10,16 @@ const exporter = require('./lib/export');
 const storage = require('./lib/storage');
 const ExcelJS = require('exceljs');
 
+// ---- 进程级稳定性保护 ----
+// 任何未捕获的同步异常 / 未处理的 Promise 拒绝，只记录、不让整个进程退出。
+// 这样偶发的第三方接口抖动、客户端中途断开等都不会把服务搞崩，云端也能持续响应。
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err && (err.stack || err.message || err));
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', (reason && (reason.stack || reason.message)) || reason);
+});
+
 const ROOT = __dirname;
 const PUBLIC = path.join(ROOT, 'public');
 
@@ -179,6 +189,13 @@ function serveStatic(req, res, url) {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const { pathname } = url;
+
+  // ---- 健康检查 / 探活接口：立即返回 200，不依赖任何存储或外部服务 ----
+  // 云端健康检查探针打这个地址即可，容器一启动就能通过检查，避免“启动慢被判定不健康→不分配流量”。
+  if (pathname === '/healthz' || pathname === '/_health') {
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+    return res.end('ok');
+  }
 
   try {
     // ---- 提交报备 ----
@@ -510,8 +527,17 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+// 防止长连接被代理（云端 LB）提前掐断导致写入已关闭的 socket 而抛错
+server.keepAliveTimeout = 65000;
+server.headersTimeout = 66000;
+
+// 监听级错误（如端口被占）记录但不退出
+server.on('error', (err) => {
+  console.error('[server.error]', err && (err.stack || err.message || err));
+});
+
 const PORT = process.env.PORT || config.port || 3000;
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`报备系统已启动: http://localhost:${PORT}`);
+  console.log(`报备系统已启动: http://localhost:${PORT}  (healthz: /healthz)`);
   console.log(`后台管理: http://localhost:${PORT}/admin  (token: ${config.adminToken})`);
 });
