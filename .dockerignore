@@ -6,3 +6,5 @@ uploads
 *.log
 Dockerfile
 .dockerignore
+probe_data.js
+package-lock.json
