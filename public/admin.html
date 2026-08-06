@@ -58,7 +58,11 @@
     <span style="color:var(--muted)">至</span>
     <input type="date" id="dateTo" />
     <button class="btn secondary" style="width:auto;padding:11px 16px" onclick="loadList()">查询</button>
+    <button class="btn secondary" style="width:auto;padding:11px 16px" onclick="clearDates()">全部</button>
     <span id="dateStat" class="hint"></span>
+    <div style="flex-basis:100%;color:var(--muted);font-size:12px;margin-top:4px">
+      不填任何日期 = 查看 / 导出<b>全部</b>；填“单日”或“区间”二选一（填一个会自动清空另一个）。下载表格同理。
+    </div>
   </div>
   <div class="card">
     <h3>批量导入人员/车辆汇总 <span class="tag">上传系统导出的 xlsx，自动写入并可被报备自动填充</span></h3>

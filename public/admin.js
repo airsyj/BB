@@ -43,12 +43,6 @@ async function loadList() {
   }
 }
 
-function setToday() {
-  const d = new Date();
-  const p = (n) => String(n).padStart(2, '0');
-  document.getElementById('date').value = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
-
 document.querySelectorAll('.dl-btns a').forEach((a) => {
   a.addEventListener('click', (e) => {
     e.preventDefault();
@@ -277,10 +271,33 @@ function escapeHtml(s) {
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-// 初始尝试用已保存的 token 连接，默认当天日期
+// 清空所有日期筛选 → 查看/导出全部
+function clearDates() {
+  document.getElementById('date').value = '';
+  document.getElementById('dateFrom').value = '';
+  document.getElementById('dateTo').value = '';
+  loadList();
+}
+
+// 初始尝试用已保存的 token 连接；默认不填日期 = 全部
 window.addEventListener('DOMContentLoaded', () => {
-  setToday();
   const saved = localStorage.getItem('adminToken');
-  if (saved) { document.getElementById('token').value = saved; loadList(); loadNoticesAdmin(); }
-  document.getElementById('date').addEventListener('change', loadList);
+  if (saved) document.getElementById('token').value = saved;
+  const dateEl = document.getElementById('date');
+  const fromEl = document.getElementById('dateFrom');
+  const toEl = document.getElementById('dateTo');
+  // 单日与区间二选一：填其一自动清空另一个
+  dateEl.addEventListener('change', () => {
+    if (dateEl.value) { fromEl.value = ''; toEl.value = ''; }
+    loadList();
+  });
+  fromEl.addEventListener('change', () => {
+    if (fromEl.value || toEl.value) dateEl.value = '';
+    loadList();
+  });
+  toEl.addEventListener('change', () => {
+    if (fromEl.value || toEl.value) dateEl.value = '';
+    loadList();
+  });
+  if (saved) { loadList(); loadNoticesAdmin(); }
 });
