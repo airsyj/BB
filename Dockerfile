@@ -10,9 +10,9 @@ RUN npm install --omit=dev
 # 复制应用代码（config.json / data / uploads 已在 .dockerignore 排除）
 COPY . .
 
-# 云托管健康检查默认探测 80，因此容器内监听 80；
-# server.js 会读取 PORT 环境变量，本地无 PORT 时仍默认 3000
-ENV PORT=80
-EXPOSE 80
+# 容器内监听端口 = 控制台「服务端口」配置值（CloudBase 会把该值注入为 PORT 环境变量）；
+# 若平台未注入 PORT，则回退到 server.js 默认值 3000。
+# 请保证控制台「服务端口」与此保持一致（本次部署填 3000）。
+EXPOSE 3000
 
 CMD ["node", "server.js"]
