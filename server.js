@@ -8,6 +8,7 @@ const ocr = require('./lib/ocr');
 const { recognize } = require('./lib/llm-ocr');
 const exporter = require('./lib/export');
 const storage = require('./lib/storage');
+const ExcelJS = require('exceljs');
 
 const ROOT = __dirname;
 const PUBLIC = path.join(ROOT, 'public');
@@ -59,6 +60,83 @@ function fmtId(ts) {
 function adminOk(url) {
   const t = url.searchParams.get('token');
   return t && t === config.adminToken;
+}
+
+// ---- 批量导入：解析 xlsx 中 人员信息 / 司机信息 / 物资进场明细 / 物资出场明细 四张表 ----
+// 列序映射与 export.js 表头顺序一致（0-based 列号 → 字段名）
+const IMPORT_MAP = {
+  personnel: [null, 'idNumber', 'name', 'phone', 'passNo', 'isNew', 'carryLaptop', 'laptopModel', 'laptopQty', 'certClass', 'visitorPhoto', 'vehicleType', 'plate', 'vehicleBrand', 'vehicleModel', 'passExpiry'],
+  vehicle:   [null, 'driverIdNumber', 'driverName', 'phone', 'passNo', 'isNew', 'carryLaptop', null, 'laptopQty', 'certClass', null, 'vehicleType', 'plate', 'vehicleBrand', 'vehicleModel', 'passExpiry'],
+  material:  ['drawingNo', 'itemName', 'unit', 'qty', 'material', 'spec', 'size', 'weight', 'grade', 'remark', 'plate', 'driverName', 'driverIdNumber', 'driverPhone', null, null],
+};
+const SHEET_TYPES = {
+  '人员信息': 'personnel',
+  '司机信息': 'vehicle',
+  '物资进场明细': 'material_in',
+  '物资出场明细': 'material_out',
+};
+
+async function importReports(buf) {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.read(buf);
+  let count = 0;
+  let skipped = 0;
+  // 已存在记录指纹，避免重复导入同一份汇总
+  const existing = await store.all();
+  const finger = (type, f) => {
+    if (type === 'personnel') return 'p:' + (f.idNumber || '') + '|' + (f.name || '');
+    if (type === 'vehicle') return 'v:' + (f.driverIdNumber || '') + '|' + (f.plate || '');
+    return 'm:' + (f.drawingNo || '') + '|' + (f.itemName || '') + '|' + (f.plate || '') + '|' + (f.entryTime || f.exitTime || '');
+  };
+  const seen = new Set(existing.map((r) => finger(r.type, r.fields || {})));
+  for (const ws of wb.worksheets) {
+    const type = SHEET_TYPES[ws.name];
+    if (!type) continue;
+    // 自动定位表头行：前 6 行内查找已知表头标记（兼容有无“公开”首行）
+    let headerRow = 0;
+    const marker = (type === 'personnel' || type === 'vehicle') ? '证件类型' : '图号';
+    ws.eachRow((row, rn) => {
+      if (headerRow) return;
+      const txt = (row.values || []).map((v) => String(v || '')).join('|');
+      if (txt.includes(marker)) headerRow = rn;
+    });
+    if (!headerRow) continue;
+    const map = (type === 'material_in' || type === 'material_out') ? IMPORT_MAP.material : IMPORT_MAP[type];
+    const dataRows = [];
+    ws.eachRow((row, rn) => { if (rn > headerRow) dataRows.push(row); });
+    for (const row of dataRows) {
+      const vals = row.values; // 1-based
+      const fields = {};
+      let hasAny = false;
+      map.forEach((target, colIdx) => {
+        if (!target) return;
+        const v = vals[colIdx + 1];
+        const s = v == null ? '' : String(v).trim();
+        if (s) { fields[target] = s; hasAny = true; }
+      });
+      if (type === 'material_in' || type === 'material_out') {
+        const t = vals[15] == null ? '' : String(vals[15]).trim();
+        if (t) { fields[type === 'material_in' ? 'entryTime' : 'exitTime'] = t; hasAny = true; }
+      }
+      if (!hasAny) { skipped++; continue; }
+      if (seen.has(finger(type, fields))) { skipped++; continue; }
+      const createdAt = Date.now();
+      const record = {
+        id: fmtId(createdAt),
+        type,
+        isRenewal: false,
+        createdAt,
+        createdAtStr: fmtDate(createdAt),
+        passExpiry: fields.passExpiry || '',
+        passNo: fields.passNo || '',
+        fields,
+      };
+      await store.add(record);
+      seen.add(finger(type, fields));
+      count++;
+    }
+  }
+  return { count, skipped };
 }
 
 // ---- 服务端合法性校验（与前端一致，作为兜底） ----
@@ -221,12 +299,23 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // ---- 后台：列表 ----
+    // ---- 后台：列表（支持单日 / 日期区间） ----
     if (req.method === 'GET' && pathname === '/api/reports') {
       if (!adminOk(url)) return sendJson(res, 401, { ok: false, error: 'token 错误' });
       const date = url.searchParams.get('date') || '';
+      const dateFrom = url.searchParams.get('dateFrom') || '';
+      const dateTo = url.searchParams.get('dateTo') || '';
       const all = await store.all();
-      const list = (date ? all.filter((r) => r.createdAtStr === date) : all).map((r) => ({
+      const list = all
+        .filter((r) => {
+          if (date) return r.createdAtStr === date;
+          if (dateFrom || dateTo) {
+            if (dateFrom && r.createdAtStr < dateFrom) return false;
+            if (dateTo && r.createdAtStr > dateTo) return false;
+          }
+          return true;
+        })
+        .map((r) => ({
         id: r.id,
         type: r.type,
         isRenewal: r.isRenewal,
@@ -240,13 +329,58 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, list });
     }
 
-    // ---- 后台：导出 Excel（可按日期筛选） ----
+    // ---- 后台：取单条完整记录（含证件图片路径，供拼图用） ----
+    if (req.method === 'GET' && pathname.startsWith('/api/report/')) {
+      if (!adminOk(url)) return sendJson(res, 401, { ok: false, error: 'token 错误' });
+      const id = pathname.split('/').pop();
+      const rec = await store.findById(id);
+      if (!rec) return sendJson(res, 404, { ok: false, error: '记录不存在' });
+      return sendJson(res, 200, { ok: true, record: rec });
+    }
+
+    // ---- 同源返回图片字节（供后台 canvas 拼图，避免跨域污染） ----
+    if (req.method === 'GET' && pathname === '/api/photobytes') {
+      const p = url.searchParams.get('path') || '';
+      const buf = await storage.readPhotoBuffer(p);
+      if (!buf) {
+        res.writeHead(404);
+        return res.end('Not found');
+      }
+      const ext = path.extname(p).toLowerCase();
+      res.writeHead(200, {
+        'Content-Type': MIME[ext] || 'application/octet-stream',
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-store',
+      });
+      return res.end(buf);
+    }
+
+    // ---- 后台：批量导入 xlsx（人员/司机/物资，自动填充数据源） ----
+    if (req.method === 'POST' && pathname === '/api/import') {
+      if (!adminOk(url)) return sendJson(res, 401, { ok: false, error: 'token 错误' });
+      const body = JSON.parse(await readBody(req));
+      const dataUrl = body.file || '';
+      const m = dataUrl.match(/^data:[\w/.+-]+;base64,(.*)$/);
+      if (!m) return sendJson(res, 400, { ok: false, error: '文件格式错误' });
+      const buf = Buffer.from(m[1], 'base64');
+      try {
+        const result = await importReports(buf);
+        return sendJson(res, 200, { ok: true, count: result.count, skipped: result.skipped });
+      } catch (e) {
+        return sendJson(res, 500, { ok: false, error: '导入失败：' + String(e.message || e) });
+      }
+    }
+
+    // ---- 后台：导出 Excel（可按单日 / 日期区间筛选） ----
     if (req.method === 'GET' && pathname === '/api/export') {
       if (!adminOk(url)) return sendJson(res, 401, { ok: false, error: 'token 错误' });
       const type = url.searchParams.get('type') || 'all';
       const date = url.searchParams.get('date') || '';
-      const buf = await exporter.exportType(type, date);
-      const fname = `报备明细_${type}${date ? '_' + date : ''}_${fmtDate(Date.now())}.xlsx`;
+      const dateFrom = url.searchParams.get('dateFrom') || '';
+      const dateTo = url.searchParams.get('dateTo') || '';
+      const buf = await exporter.exportType(type, { date, dateFrom, dateTo });
+      const range = date ? '_' + date : (dateFrom || dateTo ? `_${dateFrom || '起'}-${dateTo || '今'}` : '');
+      const fname = `报备明细_${type}${range}_${fmtDate(Date.now())}.xlsx`;
       res.writeHead(200, {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'Content-Disposition': `attachment; filename="${encodeURIComponent(fname)}"`,

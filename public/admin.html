@@ -50,14 +50,27 @@
     <div id="noticeList" style="margin-top:8px"></div>
   </div>
   <div class="card date-bar">
-    <label for="date">报备日期：</label>
+    <label for="date">单日：</label>
     <input type="date" id="date" />
+    <span style="color:var(--muted)">或</span>
+    <label for="dateFrom">区间：</label>
+    <input type="date" id="dateFrom" />
+    <span style="color:var(--muted)">至</span>
+    <input type="date" id="dateTo" />
     <button class="btn secondary" style="width:auto;padding:11px 16px" onclick="loadList()">查询</button>
     <span id="dateStat" class="hint"></span>
   </div>
+  <div class="card">
+    <h3>批量导入人员/车辆汇总 <span class="tag">上传系统导出的 xlsx，自动写入并可被报备自动填充</span></h3>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <input type="file" id="importFile" accept=".xlsx,.xls" />
+      <button type="button" class="btn secondary" style="width:auto;padding:11px 16px" onclick="doImport()">导入</button>
+    </div>
+    <div id="importStat" class="hint"></div>
+  </div>
   <div class="card" style="padding:0;overflow:auto;max-height:70vh;">
     <table id="tbl">
-      <thead><tr><th>编号</th><th>类型</th><th>姓名/车牌</th><th>身份证号</th><th>手机</th><th>提交日期</th><th>通行有效期</th><th>状态</th></tr></thead>
+      <thead><tr><th>编号</th><th>类型</th><th>姓名/车牌</th><th>身份证号</th><th>手机</th><th>提交日期</th><th>通行有效期</th><th>状态</th><th>操作</th></tr></thead>
       <tbody></tbody>
     </table>
   </div>
