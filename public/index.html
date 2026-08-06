@@ -26,7 +26,6 @@
     <div class="card">
       <h3>拍摄身份证 <span class="tag">系统自动识别姓名 / 身份证号 / 有效期</span></h3>
       <div class="photo-grid">
-        <div class="photo-tip">点击证件格：可拍照 / 从相册选择，并支持手动裁剪</div>
         <label class="photo-slot" data-key="p_idFront" data-ocr="idcard_front" data-fill='{"name":"p_name","idNumber":"p_idNumber"}'>
           <span class="plus">+</span><span class="cap">身份证人像面</span>
           <span class="ocr-badge">✓</span><img alt="" /><input type="file" accept="image/*" />
@@ -66,9 +65,8 @@
   <!-- 车辆报备 -->
   <section class="section" id="sec-vehicle">
     <div class="card">
-      <h3>拍摄证件 <span class="tag">自动识别驾驶证 / 行驶证 / 驾驶员身份证</span></h3>
+      <h3>拍摄证件</h3>
       <div class="photo-grid">
-        <div class="photo-tip">点击证件格：可拍照 / 从相册选择，并支持手动裁剪</div>
         <label class="photo-slot" data-key="v_licenseFront" data-ocr="driving_license" data-fill='{"licenseName":"v_licenseName","licenseNo":"v_licenseNo","licenseValid":"v_licenseValid"}'>
           <span class="plus">+</span><span class="cap">驾驶证主页</span><span class="ocr-badge">✓</span><img alt="" /><input type="file" accept="image/*" /></label>
         <label class="photo-slot" data-key="v_licenseBack"><span class="plus">+</span><span class="cap">驾驶证副页</span><span class="ocr-badge">✓</span><img alt="" /><input type="file" accept="image/*" /></label>

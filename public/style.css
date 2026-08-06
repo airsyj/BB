@@ -328,14 +328,6 @@ input.id-good {
 .mine-card { border-left: 4px solid var(--primary); }
 .mine-card h3 { color: var(--primary-d); }
 
-/* 证件格来源提示 */
-.photo-tip {
-  font-size: 12px;
-  color: var(--muted);
-  margin: 0 0 8px;
-  padding-left: 2px;
-}
-
 /* 拍照 / 相册 底部选择弹层 */
 .sheet-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,.45);
