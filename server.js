@@ -216,7 +216,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (errs.length) return sendJson(res, 400, { ok: false, error: errs.join('；') });
       const createdAt = Date.now();
-      const fields = await storage.persistPhotos(body.fields || {});
+      const rawFields = body.fields || {};
       // 不自动生成“报备到期日”：具体到期日以向甲方报备为准，当前未知
       const passExpiry = body.passExpiry || '';
       const record = {
@@ -226,10 +226,19 @@ const server = http.createServer(async (req, res) => {
         createdAt,
         createdAtStr: fmtDate(createdAt),
         passExpiry,
-        passNo: fields.passNo || '',
-        fields,
+        passNo: rawFields.passNo || '',
+        fields: rawFields,
       };
+      // 关键：先存文字记录，保证“提交必达”。即使后面照片上传失败，报备信息也不会丢。
       await store.add(record);
+      // 再异步把 base64 照片落库到云存储（失败仅影响照片，绝不丢记录）
+      storage.persistPhotos(rawFields).then(async (persisted) => {
+        // 字段有变化（图片路径被替换为云存储路径）才回写，避免无谓写盘
+        if (JSON.stringify(persisted) !== JSON.stringify(rawFields)) {
+          try { await store.update(record.id, persisted); }
+          catch (e) { console.error('[photo-update] 照片路径回写失败（记录已保留）：', e && e.message); }
+        }
+      }).catch((e) => console.error('[photo-persist] 照片上传失败，报备记录已保留：', e && e.message));
       return sendJson(res, 200, {
         ok: true,
         id: record.id,
