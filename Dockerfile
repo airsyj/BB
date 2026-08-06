@@ -10,7 +10,9 @@ RUN npm install --omit=dev
 # 复制应用代码（config.json / data / uploads 已在 .dockerignore 排除）
 COPY . .
 
-# 云托管「监听端口」请设为 3000（与下方一致）
-EXPOSE 3000
+# 云托管健康检查默认探测 80，因此容器内监听 80；
+# server.js 会读取 PORT 环境变量，本地无 PORT 时仍默认 3000
+ENV PORT=80
+EXPOSE 80
 
 CMD ["node", "server.js"]
