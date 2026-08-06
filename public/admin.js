@@ -30,23 +30,11 @@ async function loadList() {
     const r = await fetch(q);
     const j = await r.json();
     if (!j.ok) return alert('token 错误或无数据');
-    const tb = document.querySelector('#tbl tbody');
-    tb.innerHTML = '';
-    j.list.forEach((it) => {
-      const tr = document.createElement('tr');
-      const badge = it.isRenewal
-        ? '<span class="badge ren">续期</span>'
-        : '<span class="badge new">新办</span>';
-      const name = it.name || it.plate || '-';
-      tr.innerHTML = `<td>${it.id}</td><td>${TYPE_LABEL[it.type] || it.type}</td><td>${name}</td>` +
-        `<td>${it.idNumber || '-'}</td><td>${it.phone || '-'}</td><td>${it.createdAtStr}</td>` +
-        `<td>${it.passExpiry || '-'}</td><td>${badge}</td>`;
-      tb.appendChild(tr);
-    });
+    const list = j.list || [];
     const dateLabel = selDates.size
       ? `已选 ${Array.from(selDates).sort().join('、')} 共 ${selDates.size} 天`
       : '全部日期（含历史记录）';
-    document.getElementById('stat').textContent = `${dateLabel}：共 ${j.list.length} 条记录`;
+    document.getElementById('stat').textContent = `${dateLabel}：共 ${list.length} 条记录`;
   } catch (e) {
     alert('加载失败');
   }
@@ -137,31 +125,35 @@ async function downloadType(type) {
   }
 }
 
-// ---- 全选：一次性选中所有“有数据的日期”，并自动跳到最早有数据的月份 ----
+// ---- 全选：只选中“当前显示的月份”内有报备的日期；其它月份一律不考虑 ----
 async function selectAllDates() {
   const token = getToken();
   if (!token) return alert('请先填写 token 并连接');
   const stat = document.getElementById('stat');
-  stat.textContent = '正在读取全部日期…';
+  stat.textContent = '正在读取本月数据…';
   try {
-    const r = await fetch('/api/reports?token=' + encodeURIComponent(token));
-    const j = await r.json();
-    if (!j.ok) { stat.textContent = ''; return alert('token 错误'); }
-    const set = new Set((j.list || []).map((x) => x.createdAtStr).filter(Boolean));
-    selDates = set;
-    if (!set.size) { stat.textContent = '当前没有任何报备记录'; renderCal(); return; }
-    // 自动跳转到“最早有数据的月份”，让选中的蓝点在日历上可见，避免看起来“没反应”
-    const sorted = Array.from(set).sort();
-    const earliest = sorted[0];
-    viewY = Number(earliest.slice(0, 4));
-    viewM = Number(earliest.slice(5, 7)) - 1;
+    // 确保“哪些日期有数据”已加载（用于打蓝点）
+    if (!hasDataDates.size) {
+      const r = await fetch('/api/reports?token=' + encodeURIComponent(token));
+      const j = await r.json();
+      if (!j.ok) { stat.textContent = ''; return alert('token 错误'); }
+      hasDataDates = new Set((j.list || []).map((x) => x.createdAtStr).filter(Boolean));
+    }
+    // 仅取当前显示的 年-月 前缀，月份不同的一律不选
+    const prefix = `${viewY}-${String(viewM + 1).padStart(2, '0')}`;
+    const monthDates = Array.from(hasDataDates)
+      .filter((d) => d.startsWith(prefix))
+      .sort();
+    if (!monthDates.length) {
+      selDates = new Set();
+      renderCal();
+      stat.textContent = `${prefix} 本月暂无报备记录`;
+      return;
+    }
+    selDates = new Set(monthDates);
     renderCal();
-    // 先无筛选拉一次，拿到总数做提示
-    const allR = await fetch('/api/reports?token=' + encodeURIComponent(token));
-    const allJ = await allR.json();
-    const total = (allJ.list || []).length;
     loadList();
-    stat.textContent = `已全选 ${set.size} 天（共 ${total} 条记录）。导出表格即包含全部，不会漏掉任何人。`;
+    stat.textContent = `已全选本月（${prefix}）共 ${monthDates.length} 天的报备，点上方按钮即可下载。`;
   } catch (e) {
     stat.textContent = '';
     alert('读取失败');

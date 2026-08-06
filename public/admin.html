@@ -81,8 +81,8 @@
     <div id="cal" class="calendar"></div>
     <div id="selChips" class="chips"></div>
     <div class="hint" style="margin-top:8px">
-      <b>点击日历上的日期</b>即可查看当天报备；可<b>多选任意多天</b>。带<b style="color:#2b6cb0">蓝点</b>的日期表示当天有报备记录。
-      点<b>全选</b>可一次性选中所有有数据的日期（导出表格即包含全部，不再漏掉任何人）。
+      <b>点击日历上的日期</b>即可选中当天报备；可<b>多选任意多天</b>。带<b style="color:#2b6cb0">蓝点</b>的日期表示当天有报备记录。
+      点<b>全选</b>可一键选中<b>本月</b>所有有报备的日期（其它月份不会被选入）。
       下载“司机信息 / 全部”时，系统会自动把每辆车的<b>驾驶证+行驶证四合一拼图</b>与表格一起打包下载。
     </div>
   </div>
@@ -93,12 +93,6 @@
       <button type="button" class="btn secondary" style="width:auto;padding:11px 16px" onclick="doImport()">导入</button>
     </div>
     <div id="importStat" class="hint"></div>
-  </div>
-  <div class="card" style="padding:0;overflow:auto;max-height:70vh;">
-    <table id="tbl">
-      <thead><tr><th>编号</th><th>类型</th><th>姓名/车牌</th><th>身份证号</th><th>手机</th><th>提交日期</th><th>通行有效期</th><th>状态</th></tr></thead>
-      <tbody></tbody>
-    </table>
   </div>
   <div class="admin-link"><a href="/">← 返回报备首页</a></div>
 </main>
