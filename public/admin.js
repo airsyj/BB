@@ -10,7 +10,7 @@ function getToken() {
 let selDates = new Set();
 let viewY = new Date().getFullYear();
 let viewM = new Date().getMonth(); // 0-11
-let rangeAnchor = null;           // 区间模式下第一击的日期
+let hasDataDates = new Set();      // 当天有报备记录的日期（日历上以蓝点提示）
 
 function fmtLocal(d) {
   const p = (n) => String(n).padStart(2, '0');
@@ -38,51 +38,140 @@ async function loadList() {
         ? '<span class="badge ren">续期</span>'
         : '<span class="badge new">新办</span>';
       const name = it.name || it.plate || '-';
-      const action = it.type === 'vehicle'
-        ? `<button class="btn secondary" style="width:auto;padding:5px 10px" onclick="composeCollage('${it.id}')">证件拼图</button>`
-        : '';
       tr.innerHTML = `<td>${it.id}</td><td>${TYPE_LABEL[it.type] || it.type}</td><td>${name}</td>` +
         `<td>${it.idNumber || '-'}</td><td>${it.phone || '-'}</td><td>${it.createdAtStr}</td>` +
-        `<td>${it.passExpiry || '-'}</td><td>${badge}</td><td>${action}</td>`;
+        `<td>${it.passExpiry || '-'}</td><td>${badge}</td>`;
       tb.appendChild(tr);
     });
     const dateLabel = selDates.size
       ? `已选 ${Array.from(selDates).sort().join('、')} 共 ${selDates.size} 天`
-      : '全部日期';
+      : '全部日期（含历史记录）';
     document.getElementById('stat').textContent = `${dateLabel}：共 ${j.list.length} 条记录`;
   } catch (e) {
     alert('加载失败');
   }
 }
 
+// 下载按钮：统一走 downloadType（车辆/全部会自动附带四合一拼图并打包 zip）
 document.querySelectorAll('.dl-btns a').forEach((a) => {
   a.addEventListener('click', (e) => {
     e.preventDefault();
-    const token = getToken();
-    if (!token) return alert('请先填写 token 并连接');
-    const type = a.dataset.type;
-    let q = `/api/export?type=${type}&token=${encodeURIComponent(token)}`;
-    if (selDates.size) q += `&dates=${encodeURIComponent(Array.from(selDates).join(','))}`;
-    window.location.href = q;
+    downloadType(a.dataset.type);
   });
 });
 
-// ---- 车辆证件四合一拼图（行驶证正副 + 驾驶证正副），原图像素合成，可直接打印/下载 ----
-async function composeCollage(id) {
+function typeLabel(type) {
+  return ({ personnel: '人员信息', vehicle: '司机信息', material_in: '物资进场', material_out: '物资出场', all: '全部' })[type] || type;
+}
+
+function triggerDownload(blob, filename) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+function canvasToBlob(canvas, type) {
+  return new Promise((res) => canvas.toBlob((b) => res(b), type || 'image/png'));
+}
+
+// 用浏览器端 JSZip 把表格 + 多张拼图打包成一个 zip 一起下载
+async function makeZip(files) {
+  const zip = new JSZip();
+  files.forEach((f) => zip.file(f.name, f.blob));
+  return await zip.generateAsync({ type: 'blob' });
+}
+
+// ---- 核心：按选定日期下载。车辆/全部类型自动把四合一拼图与表格打包 ----
+async function downloadType(type) {
   const token = getToken();
   if (!token) return alert('请先填写 token 并连接');
+  // 预检：该筛选 + 类型下是否真有记录，避免下载到“空白表格”
+  let lq = '/api/reports?token=' + encodeURIComponent(token) + '&type=' + type;
+  if (selDates.size) lq += '&dates=' + encodeURIComponent(Array.from(selDates).join(','));
+  const lr = await fetch(lq);
+  const lj = await lr.json();
+  if (!lj.ok) return alert('token 错误或无数据');
+  const list = (lj.list || []).filter((x) => type === 'all' || x.type === type);
+  if (!list.length) {
+    return alert('当前筛选下没有「' + typeLabel(type) + '」记录。\n可点“全选”导出全部，或选择带蓝点的日期。');
+  }
+  const stat = document.getElementById('stat');
+  stat.textContent = '正在生成报表…';
   try {
-    const r = await fetch('/api/report/' + encodeURIComponent(id) + '?token=' + encodeURIComponent(token));
-    const j = await r.json();
-    if (!j.ok) return alert('获取记录失败：' + (j.error || ''));
-    const tiles = await loadTiles(j.record);
-    if (!tiles.some((t) => t.img)) return alert('该记录暂无证件图片');
-    downloadCollage(tiles, j.record);
+    let eq = '/api/export?type=' + type + '&token=' + encodeURIComponent(token);
+    if (selDates.size) eq += '&dates=' + encodeURIComponent(Array.from(selDates).join(','));
+    const xlsxBlob = await (await fetch(eq)).blob();
+    const needCollage = (type === 'vehicle' || type === 'all');
+    const stamp = fmtLocal(new Date());
+    if (!needCollage) {
+      triggerDownload(xlsxBlob, `报备明细_${typeLabel(type)}_${stamp}.xlsx`);
+      stat.textContent = '';
+      return;
+    }
+    // 车辆：把每辆车的四合一拼图与表格一起打包
+    const files = [{ name: `报备明细_${typeLabel(type)}_${stamp}.xlsx`, blob: xlsxBlob }];
+    const veh = list.filter((x) => x.type === 'vehicle');
+    for (let i = 0; i < veh.length; i++) {
+      stat.textContent = `正在生成证件拼图 ${i + 1}/${veh.length}…`;
+      const rec = await (await fetch('/api/report/' + encodeURIComponent(veh[i].id) + '?token=' + encodeURIComponent(token))).json();
+      if (!rec.ok) continue;
+      const tiles = await loadTiles(rec.record);
+      if (!tiles.some((t) => t.img)) continue;
+      const canvas = buildCollageCanvas(tiles, rec.record);
+      const png = await canvasToBlob(canvas, 'image/png');
+      const f = (rec.record.fields) || {};
+      const tag = (f.plate || f.driverName || rec.record.id);
+      files.push({ name: `证件拼图_${tag}_${rec.record.id}.png`, blob: png });
+    }
+    stat.textContent = '正在打包…';
+    const zipBlob = await makeZip(files);
+    triggerDownload(zipBlob, `报备明细_${typeLabel(type)}_含证件拼图_${stamp}.zip`);
+    stat.textContent = '';
   } catch (e) {
-    alert('拼图失败：' + (e.message || e));
+    stat.textContent = '';
+    alert('导出失败：' + (e.message || e));
   }
 }
 
+// ---- 全选：一次性选中所有“有数据的日期” ----
+async function selectAllDates() {
+  const token = getToken();
+  if (!token) return alert('请先填写 token 并连接');
+  const stat = document.getElementById('stat');
+  stat.textContent = '正在读取全部日期…';
+  try {
+    const r = await fetch('/api/reports?token=' + encodeURIComponent(token));
+    const j = await r.json();
+    if (!j.ok) { stat.textContent = ''; return alert('token 错误'); }
+    const set = new Set((j.list || []).map((x) => x.createdAtStr).filter(Boolean));
+    selDates = set;
+    renderCal();
+    loadList();
+    stat.textContent = '';
+  } catch (e) {
+    stat.textContent = '';
+    alert('读取失败');
+  }
+}
+
+// ---- 读取“哪些日期有数据”，用于在日历上打蓝点（避免选到空日期导致空白下载） ----
+async function loadDateHints() {
+  const token = getToken();
+  if (!token) return;
+  try {
+    const r = await fetch('/api/reports?token=' + encodeURIComponent(token));
+    const j = await r.json();
+    if (!j.ok) return;
+    hasDataDates = new Set((j.list || []).map((x) => x.createdAtStr).filter(Boolean));
+    renderCal();
+  } catch (e) { /* 忽略 */ }
+}
+
+// ---- 车辆证件四合一拼图（驾驶证正/副 + 行驶证正/副），原图像素合成，用于打包下载 ----
 function loadImage(url) {
   return new Promise((resolve) => {
     const im = new Image();
@@ -93,7 +182,24 @@ function loadImage(url) {
   });
 }
 
-// 生成本条记录的四合一拼图画布（驾驶证正/副 + 行驶证正/副），供单条下载与批量打印复用
+async function loadTiles(record) {
+  const f = (record && record.fields) || {};
+  const slots = [
+    { key: 'v_licenseFront', label: '驾驶证 · 正页' },
+    { key: 'v_licenseBack', label: '驾驶证 · 副页' },
+    { key: 'v_regFront', label: '行驶证 · 正页' },
+    { key: 'v_regBack1', label: '行驶证 · 副页' },
+  ];
+  const tiles = [];
+  for (const s of slots) {
+    const p = f[s.key];
+    let img = null;
+    if (p) img = await loadImage('/api/photobytes?path=' + encodeURIComponent(p) + '&t=' + Date.now());
+    tiles.push({ ...s, img });
+  }
+  return tiles;
+}
+
 function buildCollageCanvas(tiles, record) {
   const W = 1500;
   const CAP = 110;
@@ -151,109 +257,6 @@ function buildCollageCanvas(tiles, record) {
   return canvas;
 }
 
-async function loadTiles(record) {
-  const f = (record && record.fields) || {};
-  const slots = [
-    { key: 'v_licenseFront', label: '驾驶证 · 正页' },
-    { key: 'v_licenseBack', label: '驾驶证 · 副页' },
-    { key: 'v_regFront', label: '行驶证 · 正页' },
-    { key: 'v_regBack1', label: '行驶证 · 副页' },
-  ];
-  const tiles = [];
-  for (const s of slots) {
-    const p = f[s.key];
-    let img = null;
-    if (p) img = await loadImage('/api/photobytes?path=' + encodeURIComponent(p) + '&t=' + Date.now());
-    tiles.push({ ...s, img });
-  }
-  return tiles;
-}
-
-function recordInfo(record) {
-  const f = (record && record.fields) || {};
-  return [
-    '车牌 ' + (f.plate || '-'),
-    '驾驶证姓名 ' + (f.licenseName || f.driverName || '-'),
-    '身份证 ' + (f.driverIdNumber || '-'),
-    '手机 ' + (f.phone || '-'),
-    '提交 ' + (record.createdAtStr || ''),
-  ].join(' ｜ ');
-}
-
-function downloadCollage(tiles, record) {
-  const rec = record || {};
-  const f = rec.fields || {};
-  const title = (f.plate || f.driverName || f.name || '') + ' 证件拼图';
-  const canvas = buildCollageCanvas(tiles, rec);
-  canvas.toBlob((blob) => {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = '证件拼图_' + (rec.id || Date.now()) + (title ? '_' + title : '') + '.png';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-  }, 'image/png');
-}
-
-// ---- 批量：把当前筛选下的所有车辆报备，按"表格信息 + 四合一拼图"生成为可打印页面 ----
-async function exportVehicleCollage() {
-  const token = getToken();
-  if (!token) return alert('请先填写 token 并连接');
-  let q = '/api/reports?token=' + encodeURIComponent(token) + '&type=vehicle';
-  if (selDates.size) q += '&dates=' + encodeURIComponent(Array.from(selDates).join(','));
-  const stat = document.getElementById('dateStat');
-  stat.textContent = '正在读取车辆记录…';
-  try {
-    const r = await fetch(q);
-    const j = await r.json();
-    if (!j.ok) { stat.textContent = ''; return alert('加载失败：' + (j.error || '')); }
-    const list = j.list || [];
-    if (!list.length) { stat.textContent = ''; return alert('当前筛选下没有车辆报备记录'); }
-    const cards = [];
-    for (let i = 0; i < list.length; i++) {
-      stat.textContent = `正在生成拼图 ${i + 1}/${list.length}…`;
-      const rec = await (await fetch('/api/report/' + encodeURIComponent(list[i].id) + '?token=' + encodeURIComponent(token))).json();
-      if (!rec.ok) continue;
-      const tiles = await loadTiles(rec.record);
-      const canvas = buildCollageCanvas(tiles, rec.record);
-      cards.push({ id: list[i].id, info: recordInfo(rec.record), dataUrl: canvas.toDataURL('image/jpeg', 0.9) });
-    }
-    if (!cards.length) { stat.textContent = ''; return alert('没有可导出的证件图片'); }
-    openPrintWindow(cards);
-    stat.textContent = '';
-  } catch (e) {
-    stat.textContent = '';
-    alert('批量拼图失败：' + (e.message || e));
-  }
-}
-
-function openPrintWindow(cards) {
-  const w = window.open('', '_blank');
-  if (!w) { alert('浏览器拦截了打印窗口，请允许弹出窗口后重试'); return; }
-  const rows = cards.map((c) =>
-    `<div class="card-print">
-       <div class="cap">${escapeHtml(c.info)}</div>
-       <img src="${c.dataUrl}" />
-     </div>`).join('');
-  w.document.write(`<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8" />
-    <title>车辆证件四合一拼图</title>
-    <style>
-      * { box-sizing: border-box; }
-      body { font-family: "Microsoft YaHei","PingFang SC",sans-serif; margin: 0; padding: 16px; color: #222; }
-      h1 { font-size: 18px; margin: 0 0 12px; }
-      .card-print { border: 1px solid #ccc; border-radius: 8px; padding: 10px; margin-bottom: 16px; page-break-inside: avoid; }
-      .cap { font-size: 13px; margin-bottom: 8px; color: #1a3c5e; font-weight: bold; }
-      img { width: 100%; height: auto; display: block; }
-      @media print { body { padding: 0; } .card-print { break-inside: avoid; } }
-    </style></head><body>
-    <h1>车辆报备 · 驾驶证/行驶证四合一拼图（共 ${cards.length} 条）</h1>
-    ${rows}
-    <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 300); };</script>
-    </body></html>`);
-  w.document.close();
-}
-
 // ---- 批量导入 xlsx ----
 async function doImport() {
   const token = getToken();
@@ -276,6 +279,7 @@ async function doImport() {
       stat.textContent = `导入成功：新增 ${j.count} 条，跳过空行 ${j.skipped || 0} 条。刷新列表可见，后续报备可自动填充。`;
       stat.className = 'hint ok';
       loadList();
+      loadDateHints();
     } else {
       stat.textContent = '导入失败：' + (j.error || '');
       stat.className = 'hint err';
@@ -370,7 +374,7 @@ function renderCal() {
     const ds = `${viewY}-${String(viewM + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     const cls = ['day'];
     if (selDates.has(ds)) cls.push('sel');
-    if (rangeAnchor === ds) cls.push('anchor');
+    if (hasDataDates.has(ds)) cls.push('has');
     html += `<div class="${cls.join(' ')}" data-d="${ds}">${d}</div>`;
   }
   cal.innerHTML = html;
@@ -381,23 +385,10 @@ function renderCal() {
   renderChips();
 }
 
+// 点击日历某天 = 切换选中（多选任意多天）；点击已选中的再点一次即取消
 function onDayClick(ds) {
-  const rangeMode = document.getElementById('rangeMode').checked;
-  if (rangeMode) {
-    if (!rangeAnchor) {
-      rangeAnchor = ds;
-    } else {
-      const a = parseYMD(rangeAnchor), b = parseYMD(ds);
-      const lo = a < b ? a : b, hi = a < b ? b : a;
-      for (let t = new Date(lo); t <= hi; t.setDate(t.getDate() + 1)) {
-        selDates.add(fmtLocal(new Date(t)));
-      }
-      rangeAnchor = null;
-    }
-  } else {
-    if (selDates.has(ds)) selDates.delete(ds);
-    else selDates.add(ds);
-  }
+  if (selDates.has(ds)) selDates.delete(ds);
+  else selDates.add(ds);
   renderCal();
   loadList();
 }
@@ -411,15 +402,6 @@ function renderChips() {
 
 function removeDate(d) {
   selDates.delete(d);
-  if (rangeAnchor === d) rangeAnchor = null;
-  renderCal();
-  loadList();
-}
-
-// 清空所有日期筛选 → 查看/导出全部
-function clearDates() {
-  selDates.clear();
-  rangeAnchor = null;
   renderCal();
   loadList();
 }
@@ -434,7 +416,6 @@ window.addEventListener('DOMContentLoaded', () => {
   document.getElementById('calNext').addEventListener('click', () => {
     viewM++; if (viewM > 11) { viewM = 0; viewY++; } renderCal();
   });
-  document.getElementById('rangeMode').addEventListener('change', () => { rangeAnchor = null; renderCal(); });
   renderCal();
-  if (saved) { loadList(); loadNoticesAdmin(); }
+  if (saved) { loadList(); loadNoticesAdmin(); loadDateHints(); }
 });

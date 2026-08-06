@@ -8,6 +8,7 @@ const ocr = require('./lib/ocr');
 const { recognize, PROMPTS } = require('./lib/llm-ocr');
 const exporter = require('./lib/export');
 const storage = require('./lib/storage');
+const { reportDate } = require('./lib/record-date');
 const ExcelJS = require('exceljs');
 
 // ---- 进程级稳定性保护 ----
@@ -355,12 +356,13 @@ const server = http.createServer(async (req, res) => {
       const all = await store.all();
       const list = all
         .filter((r) => {
+          const d = reportDate(r);
           // 新日历控件：选定多个具体日期（dates 集合）
-          if (dates.length) return dates.includes(r.createdAtStr);
-          if (date) return r.createdAtStr === date;
+          if (dates.length) return dates.includes(d);
+          if (date) return d === date;
           if (dateFrom || dateTo) {
-            if (dateFrom && r.createdAtStr < dateFrom) return false;
-            if (dateTo && r.createdAtStr > dateTo) return false;
+            if (dateFrom && d < dateFrom) return false;
+            if (dateTo && d > dateTo) return false;
           }
           return true;
         })
@@ -368,7 +370,8 @@ const server = http.createServer(async (req, res) => {
         id: r.id,
         type: r.type,
         isRenewal: r.isRenewal,
-        createdAtStr: r.createdAtStr,
+        date: reportDate(r),
+        createdAtStr: reportDate(r),
         passExpiry: r.passExpiry || '',
         name: r.fields.name || r.fields.driverName || '',
         idNumber: r.fields.idNumber || r.fields.driverIdNumber || '',
@@ -428,7 +431,7 @@ const server = http.createServer(async (req, res) => {
       const dateFrom = url.searchParams.get('dateFrom') || '';
       const dateTo = url.searchParams.get('dateTo') || '';
       const dates = (url.searchParams.get('dates') || '').split(',').map((s) => s.trim()).filter(Boolean);
-      const buf = await exporter.exportType(type, { date, dateFrom, dateTo, dates });
+      const buf = await exporter.exportType(type, { date, dateFrom, dateTo, dates, reportDate });
       const range = date ? '_' + date : (dateFrom || dateTo ? `_${dateFrom || '起'}-${dateTo || '今'}` : '');
       const fname = `报备明细_${type}${range}_${fmtDate(Date.now())}.xlsx`;
       res.writeHead(200, {

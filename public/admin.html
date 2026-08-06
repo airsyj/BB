@@ -29,6 +29,12 @@
   .calendar .day.muted { color: #ccc; cursor: default; background: #fafafa; }
   .calendar .day.sel { background: var(--primary); color: #fff; border-color: var(--primary); font-weight: bold; }
   .calendar .day.anchor { box-shadow: 0 0 0 2px #c05621 inset; }
+  .calendar .day.has { position: relative; }
+  .calendar .day.has::after {
+    content: ''; position: absolute; right: 6px; bottom: 6px;
+    width: 7px; height: 7px; border-radius: 50%; background: #2b6cb0;
+  }
+  .calendar .day.sel.has::after { background: #fff; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
   .chip { background: #ebf8ff; color: #2b6cb0; border-radius: 999px; padding: 4px 10px; font-size: 13px; display: inline-flex; gap: 6px; align-items: center; }
   .chip b { cursor: pointer; font-weight: bold; }
@@ -52,10 +58,6 @@
       <a href="#" data-type="material_out">下载物资出场</a>
       <a href="#" data-type="all">下载全部</a>
     </div>
-    <div class="dl-btns">
-      <button type="button" class="btn secondary" style="width:auto;padding:12px 10px" onclick="exportVehicleCollage()">车辆四合一拼图（打印）</button>
-      <span class="hint" style="flex:1 0 100%;margin-top:-4px">按上方日期筛选范围，把每辆车的驾驶证正/副页 + 行驶证正/副页合成为一张图，打开打印页（可另存为 PDF）。表格数据仍用上面的“下载司机信息”获取。</span>
-    </div>
     <div id="stat" class="hint"></div>
   </div>
   <div class="card">
@@ -73,17 +75,15 @@
       <button id="calPrev" type="button" class="btn secondary" style="width:auto;padding:6px 14px">‹</button>
       <span id="calTitle" style="font-weight:bold;min-width:120px;text-align:center"></span>
       <button id="calNext" type="button" class="btn secondary" style="width:auto;padding:6px 14px">›</button>
-      <label style="margin-left:8px;display:inline-flex;gap:4px;align-items:center;cursor:pointer">
-        <input type="checkbox" id="rangeMode" /> 区间选择
-      </label>
-      <button id="calAll" type="button" class="btn secondary" style="width:auto;padding:6px 14px" onclick="clearDates()">查看全部</button>
+      <button id="calAll" type="button" class="btn secondary" style="width:auto;padding:6px 14px" onclick="selectAllDates()">全选</button>
       <button id="calRefresh" type="button" class="btn secondary" style="width:auto;padding:6px 14px" onclick="loadList()">刷新</button>
     </div>
     <div id="cal" class="calendar"></div>
     <div id="selChips" class="chips"></div>
     <div class="hint" style="margin-top:8px">
-      <b>点击日历上的日期</b>即可查看当天报备；可<b>多选任意多天</b>；勾选“区间选择”后点起止两天可选一整段。
-      不选中任何日期 = 查看 / 导出<b>全部</b>（含张彦龙这类历史记录）。下载表格同理。
+      <b>点击日历上的日期</b>即可查看当天报备；可<b>多选任意多天</b>。带<b style="color:#2b6cb0">蓝点</b>的日期表示当天有报备记录。
+      点<b>全选</b>可一次性选中所有有数据的日期（导出表格即包含全部，不再漏掉任何人）。
+      下载“司机信息 / 全部”时，系统会自动把每辆车的<b>驾驶证+行驶证四合一拼图</b>与表格一起打包下载。
     </div>
   </div>
   <div class="card">
@@ -96,12 +96,13 @@
   </div>
   <div class="card" style="padding:0;overflow:auto;max-height:70vh;">
     <table id="tbl">
-      <thead><tr><th>编号</th><th>类型</th><th>姓名/车牌</th><th>身份证号</th><th>手机</th><th>提交日期</th><th>通行有效期</th><th>状态</th><th>操作</th></tr></thead>
+      <thead><tr><th>编号</th><th>类型</th><th>姓名/车牌</th><th>身份证号</th><th>手机</th><th>提交日期</th><th>通行有效期</th><th>状态</th></tr></thead>
       <tbody></tbody>
     </table>
   </div>
   <div class="admin-link"><a href="/">← 返回报备首页</a></div>
 </main>
+<script src="/jszip.min.js"></script>
 <script src="/admin.js"></script>
 </body>
 </html>
