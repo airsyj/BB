@@ -327,3 +327,37 @@ input.id-good {
 /* 我的报备卡片 */
 .mine-card { border-left: 4px solid var(--primary); }
 .mine-card h3 { color: var(--primary-d); }
+
+/* 证件格来源提示 */
+.photo-tip {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0 0 8px;
+  padding-left: 2px;
+}
+
+/* 拍照 / 相册 底部选择弹层 */
+.sheet-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45);
+  display: none; align-items: flex-end; justify-content: center; z-index: 60;
+}
+.sheet-overlay.show { display: flex; }
+.sheet {
+  width: 100%; max-width: 480px; background: #f2f3f5;
+  border-radius: 14px 14px 0 0; padding: 8px; margin-bottom: 0;
+  animation: sheetUp .2s ease;
+}
+@keyframes sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.sheet-title {
+  text-align: center; font-size: 13px; color: var(--muted);
+  padding: 10px 0 8px;
+}
+.sheet-btn {
+  display: block; width: 100%; border: none; background: #fff;
+  padding: 15px 0; font-size: 16px; color: var(--text);
+  border-radius: 10px; margin-bottom: 6px; cursor: pointer;
+}
+.sheet-btn:active { background: #e9eaec; }
+.sheet-btn.cancel { color: #e11d48; font-weight: 600; margin-bottom: 0; }
+
+.mine-card h3 { color: var(--primary-d); }

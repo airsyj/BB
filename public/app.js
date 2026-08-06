@@ -71,10 +71,14 @@ function compress(file, maxDim = 2000, quality = 0.92) {
 
 // ============ 照片上传 + 裁剪 + OCR ============
 function setupPhotos() {
+  const sheet = document.getElementById('photoSheet');
+  let currentSlot = null;
+  // 选图后统一走：压缩 → 手动裁剪 → 回填
   document.querySelectorAll('.photo-slot input[type=file]').forEach((input) => {
     input.addEventListener('change', async () => {
       const slot = input.closest('.photo-slot');
       const file = input.files && input.files[0];
+      input.value = ''; // 允许重复选择同一张照片
       if (!file) return;
       const dataUrl = await compress(file);
       if (!dataUrl) return;
@@ -90,10 +94,33 @@ function setupPhotos() {
       });
     });
   });
+  // 点击证件格 → 弹出「拍照 / 从相册选择」
+  document.querySelectorAll('.photo-slot').forEach((slot) => {
+    slot.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      currentSlot = slot;
+      sheet.classList.add('show');
+    });
+  });
+  const pick = (useCamera) => {
+    sheet.classList.remove('show');
+    const slot = currentSlot;
+    currentSlot = null;
+    if (!slot) return;
+    const input = slot.querySelector('input[type=file]');
+    if (useCamera) input.setAttribute('capture', 'environment');
+    else input.removeAttribute('capture');
+    input.click();
+  };
+  document.getElementById('sheetCamera').addEventListener('click', () => pick(true));
+  document.getElementById('sheetAlbum').addEventListener('click', () => pick(false));
+  document.getElementById('sheetCancel').addEventListener('click', () => { sheet.classList.remove('show'); currentSlot = null; });
+  sheet.addEventListener('click', (e) => { if (e.target === sheet) { sheet.classList.remove('show'); currentSlot = null; } });
 }
 
 // ============ 裁剪弹层（四点透视矫正 + 自动检测 + 旋转） ============
-const crop = { onConfirm: null, baseImage: null, srcCanvas: null, displayRect: null, pts: null, rotation: 0, dragIdx: -1, startPtr: null, startPts: null };
+const crop = { onConfirm: null, original: null, baseImage: null, srcCanvas: null, displayRect: null, pts: null, rotation: 0, dragIdx: -1, startPtr: null, startPts: null };
 let cropEls = null;
 
 function initCropper() {
@@ -104,6 +131,7 @@ function initCropper() {
     corners: Array.from(document.querySelectorAll('#cropStage .corner')),
   };
   document.getElementById('cropRotate').addEventListener('click', rotateCrop);
+  document.getElementById('cropSkip').addEventListener('click', skipCrop);
   document.getElementById('cropCancel').addEventListener('click', () => cropEls.overlay.classList.remove('show'));
   document.getElementById('cropOk').addEventListener('click', confirmCrop);
   cropEls.corners.forEach((c, i) => {
@@ -118,6 +146,7 @@ function openCropper(dataUrl, onConfirm) {
   const img = new Image();
   img.onload = () => {
     crop.baseImage = img;
+    crop.original = dataUrl;
     crop.rotation = 0;
     crop.pts = null;
     crop.onConfirm = onConfirm;
@@ -126,6 +155,13 @@ function openCropper(dataUrl, onConfirm) {
   };
   img.onerror = () => onConfirm(dataUrl); // 异常时退回原图
   img.src = dataUrl;
+}
+
+// 跳过裁剪，直接使用原图
+function skipCrop() {
+  cropEls.overlay.classList.remove('show');
+  const fallback = (crop.srcCanvas && crop.srcCanvas.toDataURL('image/jpeg', 0.94)) || crop.original;
+  if (crop.onConfirm) crop.onConfirm(fallback);
 }
 
 function buildSrc() {
