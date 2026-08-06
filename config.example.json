@@ -14,31 +14,32 @@
     "llm": {
       "chain": [
         {
-          "provider": "openai",
-          "baseURL": "https://api.siliconflow.cn/v1",
-          "apiKey": "",
-          "model": "Qwen/Qwen3-VL-30B-A3B-Instruct",
-          "timeoutMs": 25000
-        },
-        {
-          "provider": "openai",
-          "baseURL": "https://api.siliconflow.cn/v1",
-          "apiKey": "",
-          "model": "Qwen/Qwen3-VL-32B-Instruct",
-          "timeoutMs": 25000
-        },
-        {
-          "provider": "openai",
-          "baseURL": "https://api.siliconflow.cn/v1",
-          "apiKey": "",
-          "model": "Qwen/Qwen3-VL-8B-Instruct",
-          "timeoutMs": 25000
-        },
-        {
           "provider": "hunyuan",
-          "secretId": "",
-          "secretKey": "",
-          "model": "hunyuan-vision"
+          "secretId": "fbf677fdc01f4fb685444880b651c592",
+          "secretKey": "oUMHOEAawoKJn2mg",
+          "model": "hunyuan-vision",
+          "timeoutMs": 20000
+        },
+        {
+          "provider": "openai",
+          "baseURL": "https://api.siliconflow.cn/v1",
+          "apiKey": "sk-rbsfsmqtioxynphcjfdigqanqcjeldgrmswmnjhctzdqjjpp",
+          "model": "Qwen/Qwen3-VL-30B-A3B-Instruct",
+          "timeoutMs": 20000
+        },
+        {
+          "provider": "openai",
+          "baseURL": "https://api.siliconflow.cn/v1",
+          "apiKey": "sk-rbsfsmqtioxynphcjfdigqanqcjeldgrmswmnjhctzdqjjpp",
+          "model": "Qwen/Qwen3-VL-32B-Instruct",
+          "timeoutMs": 20000
+        },
+        {
+          "provider": "openai",
+          "baseURL": "https://api.siliconflow.cn/v1",
+          "apiKey": "sk-rbsfsmqtioxynphcjfdigqanqcjeldgrmswmnjhctzdqjjpp",
+          "model": "Qwen/Qwen3-VL-8B-Instruct",
+          "timeoutMs": 20000
         }
       ]
     }
