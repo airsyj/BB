@@ -6,17 +6,27 @@ function getToken() {
   return localStorage.getItem('adminToken') || '';
 }
 
+// ---- 日历状态：选中的日期集合（可多选任意多天） ----
+let selDates = new Set();
+let viewY = new Date().getFullYear();
+let viewM = new Date().getMonth(); // 0-11
+let rangeAnchor = null;           // 区间模式下第一击的日期
+
+function fmtLocal(d) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+function parseYMD(s) {
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
 async function loadList() {
   const token = getToken();
   if (!token) return alert('请输入管理 token');
   try {
-    const date = document.getElementById('date').value;
-    const dateFrom = document.getElementById('dateFrom').value;
-    const dateTo = document.getElementById('dateTo').value;
     let q = '/api/reports?token=' + encodeURIComponent(token);
-    if (date) q += '&date=' + encodeURIComponent(date);
-    if (dateFrom) q += '&dateFrom=' + encodeURIComponent(dateFrom);
-    if (dateTo) q += '&dateTo=' + encodeURIComponent(dateTo);
+    if (selDates.size) q += '&dates=' + encodeURIComponent(Array.from(selDates).join(','));
     const r = await fetch(q);
     const j = await r.json();
     if (!j.ok) return alert('token 错误或无数据');
@@ -36,7 +46,9 @@ async function loadList() {
         `<td>${it.passExpiry || '-'}</td><td>${badge}</td><td>${action}</td>`;
       tb.appendChild(tr);
     });
-    const dateLabel = date ? `${date} 当天` : (dateFrom || dateTo ? `${dateFrom || '起'} ~ ${dateTo || '今'}` : '全部日期');
+    const dateLabel = selDates.size
+      ? `已选 ${Array.from(selDates).sort().join('、')} 共 ${selDates.size} 天`
+      : '全部日期';
     document.getElementById('stat').textContent = `${dateLabel}：共 ${j.list.length} 条记录`;
   } catch (e) {
     alert('加载失败');
@@ -49,13 +61,8 @@ document.querySelectorAll('.dl-btns a').forEach((a) => {
     const token = getToken();
     if (!token) return alert('请先填写 token 并连接');
     const type = a.dataset.type;
-    const date = document.getElementById('date').value;
-    const dateFrom = document.getElementById('dateFrom').value;
-    const dateTo = document.getElementById('dateTo').value;
     let q = `/api/export?type=${type}&token=${encodeURIComponent(token)}`;
-    if (date) q += `&date=${encodeURIComponent(date)}`;
-    if (dateFrom) q += `&dateFrom=${encodeURIComponent(dateFrom)}`;
-    if (dateTo) q += `&dateTo=${encodeURIComponent(dateTo)}`;
+    if (selDates.size) q += `&dates=${encodeURIComponent(Array.from(selDates).join(','))}`;
     window.location.href = q;
   });
 });
@@ -193,13 +200,8 @@ function downloadCollage(tiles, record) {
 async function exportVehicleCollage() {
   const token = getToken();
   if (!token) return alert('请先填写 token 并连接');
-  const date = document.getElementById('date').value;
-  const dateFrom = document.getElementById('dateFrom').value;
-  const dateTo = document.getElementById('dateTo').value;
   let q = '/api/reports?token=' + encodeURIComponent(token) + '&type=vehicle';
-  if (date) q += '&date=' + encodeURIComponent(date);
-  if (dateFrom) q += '&dateFrom=' + encodeURIComponent(dateFrom);
-  if (dateTo) q += '&dateTo=' + encodeURIComponent(dateTo);
+  if (selDates.size) q += '&dates=' + encodeURIComponent(Array.from(selDates).join(','));
   const stat = document.getElementById('dateStat');
   stat.textContent = '正在读取车辆记录…';
   try {
@@ -352,33 +354,87 @@ function escapeHtml(s) {
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-// 清空所有日期筛选 → 查看/导出全部
-function clearDates() {
-  document.getElementById('date').value = '';
-  document.getElementById('dateFrom').value = '';
-  document.getElementById('dateTo').value = '';
+// ---- 日历渲染与交互 ----
+function renderCal() {
+  const cal = document.getElementById('cal');
+  if (!cal) return;
+  const dow = ['日', '一', '二', '三', '四', '五', '六'];
+  let html = dow.map((d) => `<div class="dow">${d}</div>`).join('');
+  const startDow = new Date(viewY, viewM, 1).getDay();
+  const daysInMonth = new Date(viewY, viewM + 1, 0).getDate();
+  const prevDays = new Date(viewY, viewM, 0).getDate();
+  for (let i = 0; i < startDow; i++) {
+    html += `<div class="day muted">${prevDays - startDow + 1 + i}</div>`;
+  }
+  for (let d = 1; d <= daysInMonth; d++) {
+    const ds = `${viewY}-${String(viewM + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const cls = ['day'];
+    if (selDates.has(ds)) cls.push('sel');
+    if (rangeAnchor === ds) cls.push('anchor');
+    html += `<div class="${cls.join(' ')}" data-d="${ds}">${d}</div>`;
+  }
+  cal.innerHTML = html;
+  document.getElementById('calTitle').textContent = `${viewY} 年 ${viewM + 1} 月`;
+  cal.querySelectorAll('.day[data-d]').forEach((el) => {
+    el.addEventListener('click', () => onDayClick(el.dataset.d));
+  });
+  renderChips();
+}
+
+function onDayClick(ds) {
+  const rangeMode = document.getElementById('rangeMode').checked;
+  if (rangeMode) {
+    if (!rangeAnchor) {
+      rangeAnchor = ds;
+    } else {
+      const a = parseYMD(rangeAnchor), b = parseYMD(ds);
+      const lo = a < b ? a : b, hi = a < b ? b : a;
+      for (let t = new Date(lo); t <= hi; t.setDate(t.getDate() + 1)) {
+        selDates.add(fmtLocal(new Date(t)));
+      }
+      rangeAnchor = null;
+    }
+  } else {
+    if (selDates.has(ds)) selDates.delete(ds);
+    else selDates.add(ds);
+  }
+  renderCal();
   loadList();
 }
 
-// 初始尝试用已保存的 token 连接；默认不填日期 = 全部
+function renderChips() {
+  const box = document.getElementById('selChips');
+  if (!box) return;
+  const arr = Array.from(selDates).sort();
+  box.innerHTML = arr.map((d) => `<span class="chip">${d} <b onclick="removeDate('${d}')">×</b></span>`).join('');
+}
+
+function removeDate(d) {
+  selDates.delete(d);
+  if (rangeAnchor === d) rangeAnchor = null;
+  renderCal();
+  loadList();
+}
+
+// 清空所有日期筛选 → 查看/导出全部
+function clearDates() {
+  selDates.clear();
+  rangeAnchor = null;
+  renderCal();
+  loadList();
+}
+
+// 初始尝试用已保存的 token 连接；默认不选中日期 = 全部
 window.addEventListener('DOMContentLoaded', () => {
   const saved = localStorage.getItem('adminToken');
   if (saved) document.getElementById('token').value = saved;
-  const dateEl = document.getElementById('date');
-  const fromEl = document.getElementById('dateFrom');
-  const toEl = document.getElementById('dateTo');
-  // 单日与区间二选一：填其一自动清空另一个
-  dateEl.addEventListener('change', () => {
-    if (dateEl.value) { fromEl.value = ''; toEl.value = ''; }
-    loadList();
+  document.getElementById('calPrev').addEventListener('click', () => {
+    viewM--; if (viewM < 0) { viewM = 11; viewY--; } renderCal();
   });
-  fromEl.addEventListener('change', () => {
-    if (fromEl.value || toEl.value) dateEl.value = '';
-    loadList();
+  document.getElementById('calNext').addEventListener('click', () => {
+    viewM++; if (viewM > 11) { viewM = 0; viewY++; } renderCal();
   });
-  toEl.addEventListener('change', () => {
-    if (fromEl.value || toEl.value) dateEl.value = '';
-    loadList();
-  });
+  document.getElementById('rangeMode').addEventListener('change', () => { rangeAnchor = null; renderCal(); });
+  renderCal();
   if (saved) { loadList(); loadNoticesAdmin(); }
 });

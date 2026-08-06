@@ -351,9 +351,12 @@ const server = http.createServer(async (req, res) => {
       const date = url.searchParams.get('date') || '';
       const dateFrom = url.searchParams.get('dateFrom') || '';
       const dateTo = url.searchParams.get('dateTo') || '';
+      const dates = (url.searchParams.get('dates') || '').split(',').map((s) => s.trim()).filter(Boolean);
       const all = await store.all();
       const list = all
         .filter((r) => {
+          // 新日历控件：选定多个具体日期（dates 集合）
+          if (dates.length) return dates.includes(r.createdAtStr);
           if (date) return r.createdAtStr === date;
           if (dateFrom || dateTo) {
             if (dateFrom && r.createdAtStr < dateFrom) return false;
@@ -424,7 +427,8 @@ const server = http.createServer(async (req, res) => {
       const date = url.searchParams.get('date') || '';
       const dateFrom = url.searchParams.get('dateFrom') || '';
       const dateTo = url.searchParams.get('dateTo') || '';
-      const buf = await exporter.exportType(type, { date, dateFrom, dateTo });
+      const dates = (url.searchParams.get('dates') || '').split(',').map((s) => s.trim()).filter(Boolean);
+      const buf = await exporter.exportType(type, { date, dateFrom, dateTo, dates });
       const range = date ? '_' + date : (dateFrom || dateTo ? `_${dateFrom || '起'}-${dateTo || '今'}` : '');
       const fname = `报备明细_${type}${range}_${fmtDate(Date.now())}.xlsx`;
       res.writeHead(200, {

@@ -16,8 +16,22 @@
   th { background: #f7fafc; position: sticky; top: 0; }
   .token-bar { display: flex; gap: 8px; margin-bottom: 12px; }
   .token-bar input { flex: 1; }
-  .date-bar { display: flex; gap: 10px; align-items: center; }
+  .date-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   .date-bar input[type=date] { flex: 0 0 auto; }
+  .cal-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  .calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; max-width: 420px; }
+  .calendar .dow { text-align: center; font-size: 12px; color: var(--muted); padding: 4px 0; }
+  .calendar .day {
+    text-align: center; padding: 10px 0; border: 1px solid var(--border); border-radius: 8px;
+    cursor: pointer; font-size: 14px; user-select: none; background: #fff; transition: .12s;
+  }
+  .calendar .day:hover { border-color: var(--primary); }
+  .calendar .day.muted { color: #ccc; cursor: default; background: #fafafa; }
+  .calendar .day.sel { background: var(--primary); color: #fff; border-color: var(--primary); font-weight: bold; }
+  .calendar .day.anchor { box-shadow: 0 0 0 2px #c05621 inset; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .chip { background: #ebf8ff; color: #2b6cb0; border-radius: 999px; padding: 4px 10px; font-size: 13px; display: inline-flex; gap: 6px; align-items: center; }
+  .chip b { cursor: pointer; font-weight: bold; }
   .badge { display: inline-block; padding: 1px 7px; border-radius: 6px; font-size: 11px; }
   .badge.new { background: #ebf8ff; color: #2b6cb0; }
   .badge.ren { background: #fffaf0; color: #c05621; }
@@ -53,19 +67,23 @@
     <div id="noticeStat" class="hint"></div>
     <div id="noticeList" style="margin-top:8px"></div>
   </div>
-  <div class="card date-bar">
-    <label for="date">单日：</label>
-    <input type="date" id="date" />
-    <span style="color:var(--muted)">或</span>
-    <label for="dateFrom">区间：</label>
-    <input type="date" id="dateFrom" />
-    <span style="color:var(--muted)">至</span>
-    <input type="date" id="dateTo" />
-    <button class="btn secondary" style="width:auto;padding:11px 16px" onclick="loadList()">查询</button>
-    <button class="btn secondary" style="width:auto;padding:11px 16px" onclick="clearDates()">全部</button>
-    <span id="dateStat" class="hint"></span>
-    <div style="flex-basis:100%;color:var(--muted);font-size:12px;margin-top:4px">
-      不填任何日期 = 查看 / 导出<b>全部</b>；填“单日”或“区间”二选一（填一个会自动清空另一个）。下载表格同理。
+  <div class="card">
+    <h3>按日期筛选报备记录</h3>
+    <div class="cal-toolbar">
+      <button id="calPrev" type="button" class="btn secondary" style="width:auto;padding:6px 14px">‹</button>
+      <span id="calTitle" style="font-weight:bold;min-width:120px;text-align:center"></span>
+      <button id="calNext" type="button" class="btn secondary" style="width:auto;padding:6px 14px">›</button>
+      <label style="margin-left:8px;display:inline-flex;gap:4px;align-items:center;cursor:pointer">
+        <input type="checkbox" id="rangeMode" /> 区间选择
+      </label>
+      <button id="calAll" type="button" class="btn secondary" style="width:auto;padding:6px 14px" onclick="clearDates()">查看全部</button>
+      <button id="calRefresh" type="button" class="btn secondary" style="width:auto;padding:6px 14px" onclick="loadList()">刷新</button>
+    </div>
+    <div id="cal" class="calendar"></div>
+    <div id="selChips" class="chips"></div>
+    <div class="hint" style="margin-top:8px">
+      <b>点击日历上的日期</b>即可查看当天报备；可<b>多选任意多天</b>；勾选“区间选择”后点起止两天可选一整段。
+      不选中任何日期 = 查看 / 导出<b>全部</b>（含张彦龙这类历史记录）。下载表格同理。
     </div>
   </div>
   <div class="card">
