@@ -1,46 +1,95 @@
-const TYPE_LABEL = { personnel: '人员', vehicle: '车辆/司机', material_in: '物资进场', material_out: '物资出场' };
+const TYPE_LABEL = { personnel: '人员', vehicle: '车辆/司机', material_in: '物资进场', material_out: '物资出场', all: '全部' };
 
-function getToken() {
-  const t = document.getElementById('token').value.trim();
-  if (t) { localStorage.setItem('adminToken', t); return t; }
-  return localStorage.getItem('adminToken') || '';
+function getToken() { return localStorage.getItem('adminToken') || ''; }
+function setToken(t) { if (t) localStorage.setItem('adminToken', t); }
+function showGate(msg) {
+  document.getElementById('loginGate').style.display = 'flex';
+  document.getElementById('appMain').style.display = 'none';
+  if (msg) document.getElementById('loginErr').textContent = msg;
 }
 
-// ---- 日历状态：选中的日期集合（可多选任意多天） ----
+// ---- 登录遮罩：用管理密码（即后台 token）校验，通过后才展示后台 ----
+async function login() {
+  const pwd = (document.getElementById('loginPwd').value || '').trim();
+  const errEl = document.getElementById('loginErr');
+  if (!pwd) { errEl.textContent = '请输入管理密码'; return; }
+  try {
+    const r = await fetch('/api/reports?token=' + encodeURIComponent(pwd));
+    const j = await r.json();
+    if (j.ok) {
+      setToken(pwd);
+      errEl.textContent = '';
+      document.getElementById('loginGate').style.display = 'none';
+      document.getElementById('appMain').style.display = 'block';
+      loadList(); loadNoticesAdmin(); loadDateHints();
+    } else {
+      errEl.textContent = '密码错误，无法进入';
+    }
+  } catch (e) {
+    errEl.textContent = '网络错误，请重试';
+  }
+}
+
+// ---- 日历状态 ----
 let selDates = new Set();
 let viewY = new Date().getFullYear();
-let viewM = new Date().getMonth(); // 0-11
-let hasDataDates = new Set();      // 当天有报备记录的日期（日历上以蓝点提示）
+let viewM = new Date().getMonth();
+let hasDataDates = new Set();
+let currentList = [];
 
 function fmtLocal(d) {
   const p = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
-function parseYMD(s) {
-  const [y, m, d] = s.split('-').map(Number);
-  return new Date(y, m - 1, d);
-}
 
+// 加载列表并渲染表格（默认全部，可按 selDates 筛选）
 async function loadList() {
   const token = getToken();
-  if (!token) return alert('请输入管理 token');
+  if (!token) { showGate('请先输入管理密码'); return; }
   try {
     let q = '/api/reports?token=' + encodeURIComponent(token);
     if (selDates.size) q += '&dates=' + encodeURIComponent(Array.from(selDates).join(','));
     const r = await fetch(q);
     const j = await r.json();
-    if (!j.ok) return alert('token 错误或无数据');
-    const list = j.list || [];
+    if (!j.ok) { showGate('密码已失效，请重新输入'); return; }
+    currentList = j.list || [];
+    renderTable(applySearch(currentList));
     const dateLabel = selDates.size
       ? `已选 ${Array.from(selDates).sort().join('、')} 共 ${selDates.size} 天`
       : '全部日期（含历史记录）';
-    document.getElementById('stat').textContent = `${dateLabel}：共 ${list.length} 条记录`;
+    document.getElementById('stat').textContent = `${dateLabel}：共 ${currentList.length} 条记录`;
   } catch (e) {
     alert('加载失败');
   }
 }
 
-// 下载按钮：统一走 downloadType（车辆/全部会自动附带四合一拼图并打包 zip）
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+function applySearch(list) {
+  const t = (document.getElementById('searchBox').value || '').trim().toLowerCase();
+  if (!t) return list;
+  return list.filter((x) => [x.id, x.name, x.idNumber, x.phone, x.plate].some((v) => String(v || '').toLowerCase().includes(t)));
+}
+function doSearch() { renderTable(applySearch(currentList)); document.getElementById('recHint').textContent = `搜索结果：${applySearch(currentList).length} 条`; }
+function clearSearch() { document.getElementById('searchBox').value = ''; renderTable(applySearch(currentList)); document.getElementById('recHint').textContent = ''; }
+
+function renderTable(list) {
+  const body = document.getElementById('recBody');
+  if (!list.length) { body.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#999;padding:20px">无记录</td></tr>'; return; }
+  const TYPE = { personnel: '人员', vehicle: '车辆/司机', material_in: '物资进场', material_out: '物资出场' };
+  body.innerHTML = list.map((x) => `<tr>
+    <td>${esc(x.id || '')}</td>
+    <td>${TYPE[x.type] || x.type || ''}</td>
+    <td>${esc(x.name || '')}</td>
+    <td>${esc(x.idNumber || '')}</td>
+    <td>${esc(x.phone || '')}</td>
+    <td>${esc(x.plate || '')}</td>
+    <td>${esc(x.date || x.createdAtStr || '')}</td>
+    <td>${x.isRenewal ? '<span class="badge ren">续期</span>' : '<span class="badge new">新办</span>'}</td>
+  </tr>`).join('');
+}
+
+// 下载按钮
 document.querySelectorAll('.dl-btns a').forEach((a) => {
   a.addEventListener('click', (e) => {
     e.preventDefault();
@@ -66,23 +115,20 @@ function canvasToBlob(canvas, type) {
   return new Promise((res) => canvas.toBlob((b) => res(b), type || 'image/png'));
 }
 
-// 用浏览器端 JSZip 把表格 + 多张拼图打包成一个 zip 一起下载
 async function makeZip(files) {
   const zip = new JSZip();
   files.forEach((f) => zip.file(f.name, f.blob));
   return await zip.generateAsync({ type: 'blob' });
 }
 
-// ---- 核心：按选定日期下载。车辆/全部类型自动把四合一拼图与表格打包 ----
 async function downloadType(type) {
   const token = getToken();
-  if (!token) return alert('请先填写 token 并连接');
-  // 预检：该筛选 + 类型下是否真有记录，避免下载到“空白表格”
+  if (!token) return showGate('请先登录');
   let lq = '/api/reports?token=' + encodeURIComponent(token) + '&type=' + type;
   if (selDates.size) lq += '&dates=' + encodeURIComponent(Array.from(selDates).join(','));
   const lr = await fetch(lq);
   const lj = await lr.json();
-  if (!lj.ok) return alert('token 错误或无数据');
+  if (!lj.ok) return showGate('密码已失效，请重新输入');
   const list = (lj.list || []).filter((x) => type === 'all' || x.type === type);
   if (!list.length) {
     return alert('当前筛选下没有「' + typeLabel(type) + '」记录。\n可点“全选”导出全部，或选择带蓝点的日期。');
@@ -100,7 +146,6 @@ async function downloadType(type) {
       stat.textContent = '';
       return;
     }
-    // 车辆：把每辆车的四合一拼图与表格一起打包
     const files = [{ name: `报备明细_${typeLabel(type)}_${stamp}.xlsx`, blob: xlsxBlob }];
     const veh = list.filter((x) => x.type === 'vehicle');
     for (let i = 0; i < veh.length; i++) {
@@ -125,42 +170,32 @@ async function downloadType(type) {
   }
 }
 
-// ---- 全选：只选中“当前显示的月份”内有报备的日期；其它月份一律不考虑 ----
+// ---- 全选：选中“所有”有报备的日期（跨月份），不再局限于当前月份 ----
 async function selectAllDates() {
   const token = getToken();
-  if (!token) return alert('请先填写 token 并连接');
+  if (!token) return showGate('请先登录');
   const stat = document.getElementById('stat');
-  stat.textContent = '正在读取本月数据…';
+  stat.textContent = '正在读取全部数据…';
   try {
-    // 确保“哪些日期有数据”已加载（用于打蓝点）
     if (!hasDataDates.size) {
       const r = await fetch('/api/reports?token=' + encodeURIComponent(token));
       const j = await r.json();
-      if (!j.ok) { stat.textContent = ''; return alert('token 错误'); }
+      if (!j.ok) { stat.textContent = ''; return showGate('密码错误'); }
       hasDataDates = new Set((j.list || []).map((x) => x.createdAtStr).filter(Boolean));
     }
-    // 仅取当前显示的 年-月 前缀，月份不同的一律不选
-    const prefix = `${viewY}-${String(viewM + 1).padStart(2, '0')}`;
-    const monthDates = Array.from(hasDataDates)
-      .filter((d) => d.startsWith(prefix))
-      .sort();
-    if (!monthDates.length) {
-      selDates = new Set();
-      renderCal();
-      stat.textContent = `${prefix} 本月暂无报备记录`;
-      return;
+    if (!hasDataDates.size) {
+      selDates = new Set(); renderCal(); stat.textContent = '暂无任何报备记录'; return;
     }
-    selDates = new Set(monthDates);
+    selDates = new Set(hasDataDates);
     renderCal();
     loadList();
-    stat.textContent = `已全选本月（${prefix}）共 ${monthDates.length} 天的报备，点上方按钮即可下载。`;
+    stat.textContent = `已全选所有有报备的日期（共 ${selDates.size} 天），点上方按钮即可下载。`;
   } catch (e) {
     stat.textContent = '';
     alert('读取失败');
   }
 }
 
-// ---- 读取“哪些日期有数据”，用于在日历上打蓝点（避免选到空日期导致空白下载） ----
 async function loadDateHints() {
   const token = getToken();
   if (!token) return;
@@ -173,7 +208,7 @@ async function loadDateHints() {
   } catch (e) { /* 忽略 */ }
 }
 
-// ---- 车辆证件四合一拼图（驾驶证正/副 + 行驶证正/副），原图像素合成，用于打包下载 ----
+// ---- 车辆证件四合一拼图 ----
 function loadImage(url) {
   return new Promise((resolve) => {
     const im = new Image();
@@ -262,7 +297,7 @@ function buildCollageCanvas(tiles, record) {
 // ---- 批量导入 xlsx ----
 async function doImport() {
   const token = getToken();
-  if (!token) return alert('请先填写 token 并连接');
+  if (!token) return showGate('请先登录');
   const fileEl = document.getElementById('importFile');
   const file = fileEl.files && fileEl.files[0];
   if (!file) return alert('请先选择 xlsx 文件');
@@ -301,10 +336,10 @@ function fileToDataUrl(file) {
   });
 }
 
-// ---- 通知管理（超级管理员） ----
+// ---- 通知管理 ----
 async function publishNotice() {
   const token = getToken();
-  if (!token) return alert('请先填写 token 并连接');
+  if (!token) return showGate('请先登录');
   const text = document.getElementById('noticeText').value.trim();
   if (!text) return alert('通知内容不能为空');
   try {
@@ -387,7 +422,6 @@ function renderCal() {
   renderChips();
 }
 
-// 点击日历某天 = 切换选中（多选任意多天）；点击已选中的再点一次即取消
 function onDayClick(ds) {
   if (selDates.has(ds)) selDates.delete(ds);
   else selDates.add(ds);
@@ -408,16 +442,15 @@ function removeDate(d) {
   loadList();
 }
 
-// 初始尝试用已保存的 token 连接；默认不选中日期 = 全部
+// ---- 初始化 ----
 window.addEventListener('DOMContentLoaded', () => {
-  const saved = localStorage.getItem('adminToken');
-  if (saved) document.getElementById('token').value = saved;
-  document.getElementById('calPrev').addEventListener('click', () => {
-    viewM--; if (viewM < 0) { viewM = 11; viewY--; } renderCal();
-  });
-  document.getElementById('calNext').addEventListener('click', () => {
-    viewM++; if (viewM > 11) { viewM = 0; viewY++; } renderCal();
-  });
+  document.getElementById('loginBtn').addEventListener('click', login);
+  document.getElementById('loginPwd').addEventListener('keydown', (e) => { if (e.key === 'Enter') login(); });
+  document.getElementById('calPrev').addEventListener('click', () => { viewM--; if (viewM < 0) { viewM = 11; viewY--; } renderCal(); });
+  document.getElementById('calNext').addEventListener('click', () => { viewM++; if (viewM > 11) { viewM = 0; viewY++; } renderCal(); });
   renderCal();
-  if (saved) { loadList(); loadNoticesAdmin(); loadDateHints(); }
+  // 若已保存密码，自动尝试进入；失败则停留在登录遮罩
+  const saved = getToken();
+  if (saved) { document.getElementById('loginPwd').value = saved; login(); }
+  else showGate();
 });

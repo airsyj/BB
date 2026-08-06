@@ -720,8 +720,8 @@ async function autoFill(params, map, opt) {
     }
     if (o.isNewId) setVal(o.isNewId, '否');   // 命中历史 → 续期
     if (filled.length) {
+      toast(`已根据历史报备自动填入 ${filled.length} 项，已判定【续期】，可手动修改`);
       if (o.hintId) hint(o.hintId, `已带入 ${filled.length} 项历史信息，已判定【续期】，可手动修改`, 'ok');
-      else toast('已根据历史自动填入');
     } else if (o.hintId) hint(o.hintId, '查到历史记录，但无可带出信息', '');
     return true;
   } catch (e) {
@@ -1009,7 +1009,9 @@ function bindAutoFill() {
   };
 
   bind(['p_phone', 'p_idNumber'], (v) => ({ phone: v, idNumber: v }), {
-    name: 'p_name', idNumber: 'p_idNumber', idValidStart: 'p_idValidStart', idValidEnd: 'p_idValidEnd',
+    name: 'p_name', idNumber: 'p_idNumber', phone: 'p_phone',
+    idValidStart: 'p_idValidStart', idValidEnd: 'p_idValidEnd',
+    carryLaptop: 'p_carryLaptop', laptopModel: 'p_laptopModel', laptopQty: 'p_laptopQty',
   }, { hintId: 'p_hint', isNewId: 'p_isNew' });
 
   bind(['v_phone', 'v_driverIdNumber', 'v_plate'], (v) => ({ phone: v, idNumber: v, plate: v }), {

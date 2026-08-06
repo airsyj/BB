@@ -11,13 +11,11 @@
     flex: 1 0 auto; padding: 12px 10px; text-align: center; text-decoration: none;
     background: var(--primary); color: #fff; border: none; border-radius: 10px; font-size: 14px; cursor: pointer;
   }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th, td { border: 1px solid var(--border); padding: 7px 8px; text-align: left; }
+  th, td { border: 1px solid var(--border); padding: 7px 8px; text-align: left; font-size: 13px; }
   th { background: #f7fafc; position: sticky; top: 0; }
   .token-bar { display: flex; gap: 8px; margin-bottom: 12px; }
   .token-bar input { flex: 1; }
   .date-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-  .date-bar input[type=date] { flex: 0 0 auto; }
   .cal-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
   .calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; max-width: 420px; }
   .calendar .dow { text-align: center; font-size: 12px; color: var(--muted); padding: 4px 0; }
@@ -28,7 +26,6 @@
   .calendar .day:hover { border-color: var(--primary); }
   .calendar .day.muted { color: #ccc; cursor: default; background: #fafafa; }
   .calendar .day.sel { background: var(--primary); color: #fff; border-color: var(--primary); font-weight: bold; }
-  .calendar .day.anchor { box-shadow: 0 0 0 2px #c05621 inset; }
   .calendar .day.has { position: relative; }
   .calendar .day.has::after {
     content: ''; position: absolute; right: 6px; bottom: 6px;
@@ -41,16 +38,50 @@
   .badge { display: inline-block; padding: 1px 7px; border-radius: 6px; font-size: 11px; }
   .badge.new { background: #ebf8ff; color: #2b6cb0; }
   .badge.ren { background: #fffaf0; color: #c05621; }
+
+  /* 记录表格 */
+  .tbl-wrap { max-height: 460px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; margin-top: 10px; }
+  table.rec { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.rec th, table.rec td { border: 1px solid var(--border); padding: 6px 8px; text-align: left; white-space: nowrap; }
+  table.rec td.wrap { white-space: normal; }
+  table.rec tbody tr:nth-child(even) { background: #fafcfe; }
+  .search-bar { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
+  .search-bar input { flex:1; min-width:160px; }
+
+  /* 登录遮罩：必须输入密码才能进入后台 */
+  #loginGate {
+    position: fixed; inset: 0; background: linear-gradient(135deg, #1a3c5e, #2b6cb0);
+    display: flex; align-items: center; justify-content: center; z-index: 9999;
+  }
+  #loginGate .box {
+    background: #fff; border-radius: 16px; padding: 32px 28px; width: 340px; max-width: 90vw;
+    box-shadow: 0 20px 60px rgba(0,0,0,.3); text-align: center;
+  }
+  #loginGate h2 { margin: 0 0 6px; color: #1a3c5e; }
+  #loginGate .sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+  #loginGate input { width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 10px; font-size: 15px; box-sizing: border-box; margin-bottom: 12px; }
+  #loginGate button { width: 100%; padding: 12px; background: var(--primary); color: #fff; border: none; border-radius: 10px; font-size: 15px; cursor: pointer; }
+  #loginGate .err { color: #c0392b; font-size: 13px; min-height: 18px; margin-top: 6px; }
+  #appMain { display: none; }
 </style>
 </head>
 <body>
+
+<!-- 登录遮罩：未通过密码校验前，后台内容不可见 -->
+<div id="loginGate">
+  <div class="box">
+    <h2>后台管理</h2>
+    <div class="sub">请输入管理密码后进入</div>
+    <input id="loginPwd" type="password" placeholder="管理密码" autocomplete="current-password" />
+    <button id="loginBtn" type="button">进入后台</button>
+    <div class="err" id="loginErr"></div>
+  </div>
+</div>
+
+<div id="appMain">
 <header class="app">后台管理 · 报备报表</header>
 <main>
   <div class="card">
-    <div class="token-bar">
-      <input id="token" placeholder="管理 token" />
-      <button class="btn secondary" style="width:auto;padding:11px 16px" onclick="loadList()">连接</button>
-    </div>
     <div class="dl-btns">
       <a href="#" data-type="personnel">下载人员信息</a>
       <a href="#" data-type="vehicle">下载司机信息</a>
@@ -60,6 +91,27 @@
     </div>
     <div id="stat" class="hint"></div>
   </div>
+
+  <div class="card">
+    <h3>报备记录 <span class="tag">默认显示全部；可按日期筛选或搜索</span></h3>
+    <div class="search-bar">
+      <input id="searchBox" placeholder="搜索：姓名 / 手机号 / 身份证号 / 车牌 / 编号" />
+      <button class="btn secondary" type="button" style="width:auto;padding:11px 16px" onclick="doSearch()">搜索</button>
+      <button class="btn secondary" type="button" style="width:auto;padding:11px 16px" onclick="clearSearch()">清空</button>
+    </div>
+    <div class="tbl-wrap">
+      <table class="rec">
+        <thead>
+          <tr>
+            <th>编号</th><th>类型</th><th>姓名/驾驶员</th><th>身份证号</th><th>手机号</th><th>车牌</th><th>日期</th><th>续期</th>
+          </tr>
+        </thead>
+        <tbody id="recBody"></tbody>
+      </table>
+    </div>
+    <div id="recHint" class="hint"></div>
+  </div>
+
   <div class="card">
     <h3>发布通知 <span class="tag">将展示在报备首页顶部</span></h3>
     <textarea id="noticeText" rows="3" placeholder="输入要发布的通告内容…" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:14px;resize:vertical"></textarea>
@@ -69,6 +121,7 @@
     <div id="noticeStat" class="hint"></div>
     <div id="noticeList" style="margin-top:8px"></div>
   </div>
+
   <div class="card">
     <h3>按日期筛选报备记录</h3>
     <div class="cal-toolbar">
@@ -82,10 +135,10 @@
     <div id="selChips" class="chips"></div>
     <div class="hint" style="margin-top:8px">
       <b>点击日历上的日期</b>即可选中当天报备；可<b>多选任意多天</b>。带<b style="color:#2b6cb0">蓝点</b>的日期表示当天有报备记录。
-      点<b>全选</b>可一键选中<b>本月</b>所有有报备的日期（其它月份不会被选入）。
-      下载“司机信息 / 全部”时，系统会自动把每辆车的<b>驾驶证+行驶证四合一拼图</b>与表格一起打包下载。
+      点<b>全选</b>可一键选中<b>所有有报备的日期</b>（跨月份）。下载“司机信息 / 全部”时，系统会自动把每辆车的<b>驾驶证+行驶证四合一拼图</b>与表格一起打包下载。
     </div>
   </div>
+
   <div class="card">
     <h3>批量导入人员/车辆汇总 <span class="tag">上传系统导出的 xlsx，自动写入并可被报备自动填充</span></h3>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
@@ -96,6 +149,8 @@
   </div>
   <div class="admin-link"><a href="/">← 返回报备首页</a></div>
 </main>
+</div>
+
 <script src="/jszip.min.js"></script>
 <script src="/admin.js"></script>
 </body>
