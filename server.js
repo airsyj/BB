@@ -142,14 +142,88 @@ const IMPORT_MAP = {
 };
 const SHEET_TYPES = {
   '人员信息': 'personnel',
+  '人员登记表': 'personnel',
   '司机信息': 'vehicle',
+  '车辆登记表': 'vehicle',
   '物资进场明细': 'material_in',
   '物资出场明细': 'material_out',
 };
 
+// 单元格文本提取（兼容富文本 / 数字 / 公式）
+function cellTextOf(v) {
+  if (v == null) return '';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number') return String(v);
+  if (v.richText) return v.richText.map((t) => t.text || '').join('');
+  if (v.text) return typeof v.text === 'string' ? v.text : (v.text.text || '');
+  if (v.result !== undefined) return String(v.result);
+  return String(v);
+}
+
+// 按表头文字把列映射到字段：同时兼容「系统导出格式」与用户维护的「登记表」格式
+const PERSONNEL_KW = [
+  ['证件号码', 'idNumber'], ['身份证号', 'idNumber'],
+  ['姓名', 'name'],
+  ['手机', 'phone'], ['电话', 'phone'],
+  ['新办', 'isNew'],
+  ['携带笔记本', 'carryLaptop'],
+  ['笔记本型号', 'laptopModel'],
+  ['车辆品牌', 'vehicleBrand'],
+  ['车辆型号', 'vehicleModel'],
+  ['品牌', 'laptopModel'],
+  ['数量', 'laptopQty'],
+  ['分级', 'certClass'],
+  ['关联车辆类型', 'vehicleType'], ['车辆类型', 'vehicleType'],
+  ['车牌', 'plate'],
+  ['到期', 'passExpiry'],
+  ['访客', 'visitorPhoto'],
+];
+const VEHICLE_KW = [
+  ['车牌', 'plate'],
+  ['车辆类型', 'vehicleType'],
+  ['车辆品牌', 'vehicleBrand'],
+  ['车辆型号', 'vehicleModel'],
+  ['驾驶员姓名', 'driverName'], ['姓名', 'driverName'],
+  ['驾驶员身份证号', 'driverIdNumber'], ['证件号码', 'driverIdNumber'], ['身份证号', 'driverIdNumber'],
+  ['驾驶员电话', 'driverPhone'], ['手机', 'driverPhone'], ['电话', 'driverPhone'],
+];
+
+function buildColField(ws, headerRow, kw) {
+  const colField = {};
+  ws.getRow(headerRow).eachCell((c, ci) => {
+    const h = cellTextOf(c.value);
+    for (const [k, f] of kw) {
+      if (h.includes(k)) { colField[ci] = f; break; }
+    }
+  });
+  return colField;
+}
+
+function findHeaderRow(ws, type) {
+  const signals = (type === 'material_in' || type === 'material_out')
+    ? ['图号', '物品名称']
+    : (type === 'vehicle' ? ['车牌号', '驾驶员', '车辆类型'] : ['证件号码', '姓名', '手机号码', '证件类型']);
+  let hr = 0;
+  ws.eachRow((row, rn) => {
+    if (hr || rn > 8) return;
+    const txt = (row.values || []).map((v) => cellTextOf(v)).join('|');
+    if (signals.some((s) => txt.includes(s))) hr = rn;
+  });
+  return hr;
+}
+
 async function importReports(buf) {
-  const wb = new ExcelJS.Workbook();
-  await wb.xlsx.read(buf);
+  // ExcelJS 4.x 的 xlsx.read(buffer) 在某些 Node 版本下会报 Buffer 类型错误，
+  // 改为先落临时文件再用 readFile（已验证稳定）。
+  const tmp = path.join(ROOT, '.import_tmp_' + Date.now() + '.xlsx');
+  fs.writeFileSync(tmp, buf);
+  let wb;
+  try {
+    wb = new ExcelJS.Workbook();
+    await wb.xlsx.readFile(tmp);
+  } finally {
+    try { fs.unlinkSync(tmp); } catch (e) {}
+  }
   let count = 0;
   let skipped = 0;
   // 已存在记录指纹，避免重复导入同一份汇总
@@ -163,28 +237,22 @@ async function importReports(buf) {
   for (const ws of wb.worksheets) {
     const type = SHEET_TYPES[ws.name];
     if (!type) continue;
-    // 自动定位表头行：前 6 行内查找已知表头标记（兼容有无“公开”首行）
-    let headerRow = 0;
-    const marker = (type === 'personnel' || type === 'vehicle') ? '证件类型' : '图号';
-    ws.eachRow((row, rn) => {
-      if (headerRow) return;
-      const txt = (row.values || []).map((v) => String(v || '')).join('|');
-      if (txt.includes(marker)) headerRow = rn;
-    });
-    if (!headerRow) continue;
-    const map = (type === 'material_in' || type === 'material_out') ? IMPORT_MAP.material : IMPORT_MAP[type];
-    const dataRows = [];
-    ws.eachRow((row, rn) => { if (rn > headerRow) dataRows.push(row); });
-    for (const row of dataRows) {
+    // 自动定位表头行（兼容“公开”首行、无首行、登记表格式）
+    const headerRow = findHeaderRow(ws, type);
+    if (!headerRow) { skipped++; continue; }
+    const colField = (type === 'material_in' || type === 'material_out')
+      ? (() => { const m = {}; IMPORT_MAP.material.forEach((t, i) => { if (t) m[i + 1] = t; }); return m; })()
+      : buildColField(ws, headerRow, type === 'vehicle' ? VEHICLE_KW : PERSONNEL_KW);
+    for (let rn = headerRow + 1; rn <= ws.rowCount; rn++) {
+      const row = ws.getRow(rn);
       const vals = row.values; // 1-based
       const fields = {};
       let hasAny = false;
-      map.forEach((target, colIdx) => {
-        if (!target) return;
-        const v = vals[colIdx + 1];
-        const s = v == null ? '' : String(v).trim();
+      for (const ci in colField) {
+        const target = colField[ci];
+        const s = cellTextOf(vals[ci]).trim();
         if (s) { fields[target] = s; hasAny = true; }
-      });
+      }
       if (type === 'material_in' || type === 'material_out') {
         const t = vals[15] == null ? '' : String(vals[15]).trim();
         if (t) { fields[type === 'material_in' ? 'entryTime' : 'exitTime'] = t; hasAny = true; }
