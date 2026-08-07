@@ -4,3 +4,6 @@ data/
 uploads/
 *.log
 .DS_Store
+cam.json
+verify_live.js
+tcb_call.py
