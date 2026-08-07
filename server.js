@@ -513,6 +513,28 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, list });
     }
 
+    // ---- 调试：暴露存储类型与读取情况（仅 admin 可见，便于排障） ----
+    if (req.method === 'GET' && pathname === '/api/_debug') {
+      if (!adminOk(url)) return sendJson(res, 401, { ok: false, error: 'token 错误' });
+      const { isCloudbase } = require('./lib/cloudbase');
+      let readInfo = 'n/a';
+      try {
+        const all = await store.all();
+        readInfo = 'count=' + (all || []).length;
+      } catch (e) {
+        readInfo = 'ERR ' + (e && (e.message || e));
+      }
+      return sendJson(res, 200, {
+        ok: true,
+        isCloudbase: isCloudbase(),
+        env: process.env.TENCENTCLOUD_ENVIRONMENT || process.env.TCB_ENV_ID || '(unset)',
+        runenv: process.env.TENCENTCLOUD_RUNENV || '(unset)',
+        hasTempCreds: !!(process.env.TENCENTCLOUD_SECRETID && process.env.TENCENTCLOUD_SECRETKEY),
+        tcbSecretSet: !!(process.env.TCB_SECRET_ID && process.env.TCB_SECRET_KEY),
+        readInfo,
+      });
+    }
+
     // ---- 后台：取单条完整记录（含证件图片路径，供拼图用） ----
     if (req.method === 'GET' && pathname.startsWith('/api/report/')) {
       if (!adminOk(url)) return sendJson(res, 401, { ok: false, error: 'token 错误' });
