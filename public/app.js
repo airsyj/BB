@@ -27,10 +27,15 @@ document.getElementById('tabs').addEventListener('click', (e) => {
   window.scrollTo(0, 0);
 });
 
-// 携带笔记本时显示型号/数量
-document.getElementById('p_carryLaptop').addEventListener('change', (e) => {
-  document.getElementById('p_laptop_box').classList.toggle('hidden', e.target.value !== '是');
-});
+// 携带笔记本：选“是”显示品牌/型号/数量，选“否”隐藏
+function updateLaptopBox() {
+  const sel = document.getElementById('p_carryLaptop');
+  if (!sel) return;
+  document.getElementById('p_laptop_box').classList.toggle('hidden', sel.value !== '是');
+}
+document.getElementById('p_carryLaptop').addEventListener('change', updateLaptopBox);
+// 初始按默认值（是）直接显示填写框
+updateLaptopBox();
 
 // 物资报备：进场/出场切换显隐时间字段
 document.getElementById('m_type').addEventListener('change', (e) => {
@@ -638,6 +643,8 @@ function fillFields(slot, data) {
     const sel = document.getElementById('v_vehicleType');
     if (sel) sel.value = data.vehicleType;
   }
+  // 携带笔记本选项被带入时，同步显隐型号/数量框
+  updateLaptopBox();
 }
 
 // 身份证输入框校验提示
